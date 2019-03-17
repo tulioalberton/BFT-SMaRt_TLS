@@ -34,6 +34,7 @@ import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
+import bftsmart.tree.TreeManager;
 
 /**
  *
@@ -108,6 +109,10 @@ public class ServerCommunicationSystem extends Thread {
 
 	public void setAcceptorSSLTLS(AcceptorSSLTLS acceptor) {
 		messageHandlerSSLTLS.setAcceptorSSLTLS(acceptor);
+	}
+	
+	public void setTreeManager(TreeManager tm) {
+		messageHandlerSSLTLS.setTreeManager(tm);
 	}
 	
 	public void setTOMLayer(TOMLayer tomLayer) {

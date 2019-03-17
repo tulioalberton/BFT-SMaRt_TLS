@@ -18,7 +18,7 @@ package bftsmart.tom.core.messages;
 /**
  * Possible types of TOMMessage
  * 
- * @author alysson
+ * @author alysson, Tulio A. Ribeiro
  */
 public enum TOMMessageType {
     ORDERED_REQUEST, //0
@@ -27,7 +27,9 @@ public enum TOMMessageType {
     RECONFIG, //3
     ASK_STATUS, // 4
     STATUS_REPLY,// 5
-    UNORDERED_HASHED_REQUEST; //6
+    UNORDERED_HASHED_REQUEST, // 6
+    TREE_INIT, // 7
+    TREE_RECONFIG; // 8
     
     public int toInt() {
         switch(this) {
@@ -38,6 +40,8 @@ public enum TOMMessageType {
             case ASK_STATUS: return 4;
             case STATUS_REPLY: return 5;
             case UNORDERED_HASHED_REQUEST: return 6;
+            case TREE_INIT: return 7;
+            case TREE_RECONFIG: return 7;
             default: return -1;
         }
     }
@@ -51,6 +55,8 @@ public enum TOMMessageType {
             case 4: return ASK_STATUS;
             case 5: return STATUS_REPLY;
             case 6: return UNORDERED_HASHED_REQUEST;
+            case 7: return TREE_INIT;
+            case 8: return TREE_RECONFIG;
             default: return RECONFIG;
         }            
     }

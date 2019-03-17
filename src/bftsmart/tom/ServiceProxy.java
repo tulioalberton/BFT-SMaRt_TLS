@@ -236,7 +236,11 @@ public class ServiceProxy extends TOMSender {
 		replyServer = -1;
 		hashResponseController = null;
 
-		if(requestType == TOMMessageType.UNORDERED_HASHED_REQUEST){
+		if(requestType == TOMMessageType.TREE_INIT){
+			logger.info("Received a TREE_INIT message. ");
+			TOMulticast(request, reqId, operationId, reqType);
+			
+		}else if(requestType == TOMMessageType.UNORDERED_HASHED_REQUEST){
 
 			replyServer = getRandomlyServerId();
 			logger.debug("["+this.getClass().getName()+"] replyServerId("+replyServer+") "

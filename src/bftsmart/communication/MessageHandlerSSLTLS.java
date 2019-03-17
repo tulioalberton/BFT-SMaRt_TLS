@@ -37,6 +37,8 @@ import bftsmart.tom.core.messages.ForwardedMessage;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.leaderchange.LCMessage;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
@@ -49,6 +51,7 @@ public class MessageHandlerSSLTLS {
 	private AcceptorSSLTLS acceptor;
 	private TOMLayer tomLayer;
 	private Mac mac;
+	private TreeManager tm;
 
 	public MessageHandlerSSLTLS() {
 		try {
@@ -60,6 +63,11 @@ public class MessageHandlerSSLTLS {
 
 	public void setAcceptorSSLTLS(AcceptorSSLTLS acceptor) {
 		this.acceptor = acceptor;
+	}
+	
+	public void setTreeManager(TreeManager tm) {
+		//logger.warn(" TREE MANAGER DEFINED....: " + tm.toString());
+		this.tm = tm;
 	}
 
 	public void setTOMLayer(TOMLayer tomLayer) {
@@ -182,7 +190,38 @@ public class MessageHandlerSSLTLS {
 						break;
 					}
 					/******************************************************************/
-				} else {
+				} else if(sm instanceof TreeMessage){
+					TreeMessage treeM = (TreeMessage) sm;
+					switch (treeM.getTreeOperationType()) {
+					case INIT:
+						//logger.warn("" + this.tm.toString());
+						this.tm.initProtocol();
+					break;
+					case M:
+						logger.warn("Received TreeMessage M from: {}", 
+								treeM.getSender());
+						this.tm.receivedM(treeM);
+					break;
+					case ALREADY:
+						logger.warn("Received TreeMessage ALREADY from: {}", 
+								treeM.getSender());
+						this.tm.receivedAlready(treeM);
+					break;
+					case PARENT:
+						logger.warn("Received TreeMessage PARENT from: {}", 
+								treeM.getSender());
+						this.tm.receivedParent(treeM);
+					break;
+					
+					case RECONFIG:
+						logger.warn("Received TreeMessage RECONFIG");
+					break;							
+					default:
+						logger.warn("TreeMessage NOOP.");
+						break;
+					}
+				}
+				else {
 					logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
 				}
 			} else {
