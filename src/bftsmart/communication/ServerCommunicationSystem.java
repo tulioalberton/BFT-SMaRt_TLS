@@ -234,5 +234,8 @@ public class ServerCommunicationSystem extends Thread {
 		return connType;
 	}
 	
+	public TreeManager getTreeManager() {
+		return messageHandlerSSLTLS.getTreeManager();
+	}
 
 }

@@ -188,10 +188,15 @@ public final class AcceptorSSLTLS {
 		Epoch epoch = consensus.getEpoch(msg.getEpoch(), controller);
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
-			proposeReceived(epoch, msg);
+			
+			//we will pass all messages through the spanning-tree.
+			communication.getTreeManager().forwardToChildren(msg);
+			
+			proposeReceived(epoch, msg);			
 		}
 			break;
 		case MessageFactory.WRITE: {
+			
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
@@ -395,7 +400,6 @@ public final class AcceptorSSLTLS {
 				}
 				
 				int[] targets = controller.getCurrentViewOtherAcceptors();
-
 				communication.getServersConnSSLTLS().send(targets, cm);
 				
 				epoch.addToProof(cm);

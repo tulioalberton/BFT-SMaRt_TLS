@@ -51,9 +51,15 @@ public class Proposer {
      * @param value Value to be proposed
      */
     public void startConsensus(int cid, byte[] value) {
-        //******* EDUARDO BEGIN **************//
-        communication.send(this.controller.getCurrentViewAcceptors(),
-                factory.createPropose(cid, 0, value));
-        //******* EDUARDO END **************//
+        /**
+         * Spanning-tree communication.
+         */
+    	if(communication.getTreeManager().getFinish()) {
+        	communication.getTreeManager().forwardToChildren(
+        			factory.createPropose(cid, 0, value));
+        }else{ 
+            communication.send(this.controller.getCurrentViewAcceptors(),
+                    factory.createPropose(cid, 0, value));
+        }
     }
 }

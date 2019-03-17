@@ -390,8 +390,8 @@ public class ServiceReplica {
 							SVController.enqueueUpdate(request);
 							break;
 						case TREE_INIT:
-							noop = false;
-							// numRequests++;
+							logger.info("Received a TREE_INIT message, " + "from clientId: " + request.getSender());
+
 							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
 									request.getReqType(), request.getSession(), request.getSequence(),
 									request.getOperationId(), request.getReplyServer(),
@@ -399,16 +399,6 @@ public class ServiceReplica {
 									request.seed, regencies[consensusCount], leaders[consensusCount],
 									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
 									false);
-
-							logger.info("Catched a TREE_INIT message, " + "from clientId: " + request.getSender());
-
-							logger.info("Before executing...");
-							/*try {
-								Thread.sleep(5000);
-							} catch (InterruptedException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}*/
 							
 							TreeMessage tm = new TreeMessage(id, TreeOperationType.INIT);
 							/**
@@ -431,9 +421,7 @@ public class ServiceReplica {
 									request.getOperationId(), "1".toString().getBytes(),
 									SVController.getCurrentViewId(), request.getReqType());
 							replier.manageReply(request, msgCtxTree);
-
-							logger.info("Reply delivered...");
-						
+							logger.info("Reply delivered...");					
 
 							break;
 						default: // this code should never be executed

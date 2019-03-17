@@ -65,6 +65,9 @@ public class MessageHandlerSSLTLS {
 		this.acceptor = acceptor;
 	}
 	
+	public TreeManager getTreeManager() {
+		return this.tm;
+	}
 	public void setTreeManager(TreeManager tm) {
 		//logger.warn(" TREE MANAGER DEFINED....: " + tm.toString());
 		this.tm = tm;
@@ -86,8 +89,9 @@ public class MessageHandlerSSLTLS {
 			// so the else is unnecessary with SSL/TLS.
 			if (tomLayer.controller.getStaticConf().getUseMACs() == false 
 					|| consMsg.authenticated
-					|| consMsg.getSender() == myId)
+					|| consMsg.getSender() == myId) {				
 				acceptor.deliver(consMsg);
+			}
 			else if (consMsg.getType() == MessageFactory.ACCEPT 
 					&& consMsg.getProof() != null) {
 				
@@ -198,21 +202,21 @@ public class MessageHandlerSSLTLS {
 						this.tm.initProtocol();
 					break;
 					case M:
-						logger.warn("Received TreeMessage M from: {}", 
-								treeM.getSender());
+						//logger.warn("Received TreeMessage M from: {}", treeM.getSender());
 						this.tm.receivedM(treeM);
 					break;
 					case ALREADY:
-						logger.warn("Received TreeMessage ALREADY from: {}", 
-								treeM.getSender());
+						//logger.warn("Received TreeMessage ALREADY from: {}", treeM.getSender());
 						this.tm.receivedAlready(treeM);
 					break;
 					case PARENT:
-						logger.warn("Received TreeMessage PARENT from: {}", 
-								treeM.getSender());
+						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
 						this.tm.receivedParent(treeM);
 					break;
-					
+					case FINISHED:
+						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
+						this.tm.receivedFinished(treeM);
+					break;
 					case RECONFIG:
 						logger.warn("Received TreeMessage RECONFIG");
 					break;							

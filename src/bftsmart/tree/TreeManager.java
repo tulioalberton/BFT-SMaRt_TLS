@@ -29,130 +29,136 @@ import java.util.Queue;
 import java.util.Random;
 
 import bftsmart.communication.ServerCommunicationSystem;
+import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.messages.TreeMessage;
 import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
 public class TreeManager {
-	
+
 	private ServerCommunicationSystem commS = null;
 	private ServerViewController SVController = null;
-	//private ReentrantLock lock = new ReentrantLock();
-	
+	// private ReentrantLock lock = new ReentrantLock();
+
 	private int replicaId;
 	private int currentLeader = -1;
 	private int parent;
 	private List<Integer> children;
 	private Queue<Integer> unexplored;
-	
+	private boolean finish = false;
+
 	// Constructor.
-	public TreeManager(
-			ServerCommunicationSystem commS,
-			ServerViewController SVController, 
-			int leader){
+	public TreeManager(ServerCommunicationSystem commS, ServerViewController SVController, int leader) {
 		this.commS = commS;
 		this.SVController = SVController;
 		this.replicaId = SVController.getStaticConf().getProcessId();
 		this.parent = -1;
 		this.currentLeader = leader;
 		this.unexplored = new LinkedList<Integer>();
-		
-		//int[] neighbors = SVController.getCurrentViewOtherAcceptors();
-		Integer[] neighbors = Arrays.stream( SVController.getCurrentViewOtherAcceptors()
-				).boxed().toArray( Integer[]::new );
+
+		// int[] neighbors = SVController.getCurrentViewOtherAcceptors();
+		Integer[] neighbors = Arrays.stream(SVController.getCurrentViewOtherAcceptors()).boxed()
+				.toArray(Integer[]::new);
 		Collections.shuffle(Arrays.asList(neighbors), new Random());
 		for (int i = 0; i < neighbors.length; i++) {
 			this.unexplored.add(neighbors[i]);
 		}
 		this.children = new LinkedList<Integer>();
-		
+
 	}
-	
+
 	@Override
 	public String toString() {
-		String appended = "ReplicaId: " + replicaId +"\n";
-		appended += "Parent: " + parent +"\n";
-		appended += "Current Leader: " + this.currentLeader +"\n";
-		
+		String appended = "ReplicaId: " + replicaId + "\n";
+		appended += "Parent: " + parent + "\n";
+		appended += "Current Leader: " + this.currentLeader + "\n";
+
 		appended += "Unexplored: \n";
 		Iterator<Integer> it = this.unexplored.iterator();
 		while (it.hasNext()) {
-			appended += "\t " + (Integer) it.next() +" \n";
+			appended += "\t " + (Integer) it.next() + " \n";
 		}
 		appended += "Children: \n";
 		it = this.children.iterator();
 		while (it.hasNext()) {
-			appended += "\t " + (Integer) it.next() +" \n";
+			appended += "\t " + (Integer) it.next() + " \n";
 		}
 		return appended;
 	}
-	
+
 	public boolean initProtocol() {
-		if(this.replicaId == this.currentLeader && parent == -1) {
+		if (this.replicaId == this.currentLeader && parent == -1) {
 			this.parent = replicaId;
 			System.out.println("Spanning Tree initialized by root.\n" + toString());
-			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M);
-			while (!this.unexplored.isEmpty()) {
-				int toSend = this.unexplored.poll();
-				System.out.println("Sending M message to: " + toSend);
-				commS.send(new int[] { toSend }, signedMessage(tm));
-				Random rand = new Random();
-				try {
-					Thread.sleep(rand.nextInt(10));
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
-		return true;
-		}else {
+			explore();
+			/*
+			 * TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M); while
+			 * (!this.unexplored.isEmpty()) { int toSend = this.unexplored.poll();
+			 * System.out.println("Sending M message to: " + toSend); commS.send(new int[] {
+			 * toSend }, signedMessage(tm)); Random rand = new Random(); try {
+			 * Thread.sleep(rand.nextInt(10)); } catch (InterruptedException e) { // TODO
+			 * Auto-generated catch block e.printStackTrace(); } }
+			 */
+			return true;
+		} else {
 			return false;
 		}
 	}
-	
+
 	private void explore() {
-		if(!this.unexplored.isEmpty()) {
+		if (!this.unexplored.isEmpty()) {
 			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M);
 			int toSend = this.unexplored.poll();
-			System.out.println("Sending M message to: " + toSend);
-			commS.send(new int [] {toSend}, signedMessage(tm));
-		}
-		else {
-			if(this.parent != this.replicaId) {
+			// System.out.println("Sending M message to: " + toSend);
+			commS.send(new int[] { toSend }, signedMessage(tm));
+		} else {
+			if (this.parent != this.replicaId) {
 				TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.PARENT);
-				commS.send(new int [] {this.parent}, signedMessage(tm) );
-			System.out.println("Finished Spanning Tree: \n" + toString());
+				commS.send(new int[] { this.parent }, signedMessage(tm));
+				//System.out.println("Finished Spanning Tree: \n" + toString());
+				//this.finish = true;
+				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED));
 			}
-			System.out.println("No more Unexplored nodes: \n" + toString());
 		}
 	}
+
 	public void receivedM(TreeMessage msg) {
-		if( this.parent == -1 ) {
+		if (this.parent == -1) {
 			this.parent = msg.getSender();
 			this.unexplored.remove(msg.getSender());
-			System.out.println("Defining "+msg.getSender()+" as my patent.");
+			// System.out.println("Defining "+msg.getSender()+" as my patent.");
 			explore();
-		}
-		else {
+		} else {
 			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY);
-			commS.send(new int [] {msg.getSender()}, signedMessage(tm) );
+			commS.send(new int[] { msg.getSender() }, signedMessage(tm));
 			this.unexplored.remove(msg.getSender());
-			System.out.println("Sending ALREADY msg to: "+msg.getSender());
+			// System.out.println("Sending ALREADY msg to: "+msg.getSender());
 		}
 	}
-	
+
 	public void receivedAlready(TreeMessage msg) {
 		explore();
 	}
-	
+
 	public void receivedParent(TreeMessage msg) {
-		System.out.println("Adding "+msg.getSender()+" as a child.");
-		if(!this.children.contains(msg.getSender()))
+		System.out.println("Adding " + msg.getSender() + " as a child.");
+		if (!this.children.contains(msg.getSender()))
 			this.children.add(msg.getSender());
 		explore();
 	}
-	
+
+	public void receivedFinished(TreeMessage msg) {		
+		if (!this.finish) {
+			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
+			this.finish = true;
+			if(replicaId != parent) {
+				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.FINISHED);
+				commS.send(new int[] { parent }, signedMessage(tm));
+			}
+		}
+	}
+
 	public TreeMessage signedMessage(TreeMessage tm) {
 		Signature eng;
 		try {
@@ -165,5 +171,31 @@ public class TreeManager {
 		}
 		return tm;
 	}
-	
+
+	public List<Integer> getChildren() {
+		return this.children;
+	}
+
+	public int getParent() {
+		return this.parent;
+	}
+
+	public boolean getFinish() {
+		return this.finish;
+	}
+
+	public void forwardToParent(ConsensusMessage consMsg) {
+		commS.send(new int[] { this.parent }, consMsg);
+	}
+
+	public void forwardToChildren(ConsensusMessage consMsg) {
+		Iterator<Integer> it = this.children.iterator();
+		while (it.hasNext()) {
+			Integer child = (Integer) it.next();
+			System.out.println("Forwarding message to children: " + child);
+			commS.send(new int[] { child }, consMsg);
+		}
+		if(this.children.isEmpty())
+			System.out.println("I have no children: ");
+	}
 }

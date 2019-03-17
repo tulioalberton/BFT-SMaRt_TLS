@@ -33,7 +33,8 @@ public class TreeMessage extends SystemMessage {
 		// messages to deal with spanning tree for a specified root. 
 		M, 
 		ALREADY,
-		PARENT;
+		PARENT,
+		FINISHED;
 		
 		
 	};
