@@ -168,8 +168,10 @@ public final class AcceptorSSLTLS {
 		if (executionManager.checkLimits(msg)) {
 			logger.debug("Processing paxos msg with id " + msg.getNumber());
 			processMessage(msg);
-		} else {
-			logger.debug("Out of context msg with id " + msg.getNumber());
+		} else {			
+			logger.debug("Out of context msg with id:{}, Msg:{} " 
+					,msg.getNumber(),
+					msg);
 			tomLayer.processOutOfContext();
 		}
 	}
@@ -191,16 +193,21 @@ public final class AcceptorSSLTLS {
 			
 			//we will pass all messages through the spanning-tree.
 			communication.getTreeManager().forwardToChildren(msg);
-			
 			proposeReceived(epoch, msg);			
 		}
 			break;
 		case MessageFactory.WRITE: {
+			//we will pass all messages through the spanning-tree.
+			//communication.getTreeManager().forwardToChildren(msg);
+			//communication.getTreeManager().forwardToParent(msg);
 			
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
 		case MessageFactory.ACCEPT: {
+			//we will pass all messages through the spanning-tree.
+			//communication.getTreeManager().forwardToChildren(msg);
+			//communication.getTreeManager().forwardToParent(msg);
 			acceptReceived(epoch, msg);
 		}
 		}
@@ -282,6 +289,9 @@ public final class AcceptorSSLTLS {
 					logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
 					communication.send(this.controller.getCurrentViewOtherAcceptors(),
 							factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));
+					//we will pass all messages through the spanning-tree.
+					/*communication.getTreeManager().forwardToChildren(
+							factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));*/
 
 					computeWrite(cid, epoch, epoch.propValueHash);
 
@@ -401,6 +411,10 @@ public final class AcceptorSSLTLS {
 				
 				int[] targets = controller.getCurrentViewOtherAcceptors();
 				communication.getServersConnSSLTLS().send(targets, cm);
+				
+				//we will pass all messages through the spanning-tree.
+				//communication.getTreeManager().forwardToChildren(cm);
+				
 				
 				epoch.addToProof(cm);
 				computeAccept(cid, epoch, value);

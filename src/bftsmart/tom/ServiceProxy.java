@@ -240,7 +240,12 @@ public class ServiceProxy extends TOMSender {
 			logger.info("Received a TREE_INIT message. ");
 			TOMulticast(request, reqId, operationId, reqType);
 			
-		}else if(requestType == TOMMessageType.UNORDERED_HASHED_REQUEST){
+		}if(requestType == TOMMessageType.REQUEST_LEADER){
+			logger.info("Received a INVOKE TO LEADER. ");
+			TOMulticast(request, reqId, operationId, reqType);
+			
+		}
+		else if(requestType == TOMMessageType.UNORDERED_HASHED_REQUEST){
 
 			replyServer = getRandomlyServerId();
 			logger.debug("["+this.getClass().getName()+"] replyServerId("+replyServer+") "

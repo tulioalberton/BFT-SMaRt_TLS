@@ -220,6 +220,11 @@ public class MessageHandlerSSLTLS {
 					case RECONFIG:
 						logger.warn("Received TreeMessage RECONFIG");
 					break;							
+					case STATIC_TREE:
+						logger.warn("Received TreeMessage STATIC_TREE");
+						this.tm.createStaticTree();
+						logger.warn("{}" , this.tm.toString());
+					break;
 					default:
 						logger.warn("TreeMessage NOOP.");
 						break;

@@ -65,25 +65,29 @@ public class TreeManager {
 			this.unexplored.add(neighbors[i]);
 		}
 		this.children = new LinkedList<Integer>();
-
 	}
 
 	@Override
 	public String toString() {
-		String appended = "ReplicaId: " + replicaId + "\n";
-		appended += "Parent: " + parent + "\n";
-		appended += "Current Leader: " + this.currentLeader + "\n";
+		String appended = "\nReplicaId: " + replicaId + "";
+		appended += "\nParent: " + parent + "\n";
+		//appended += "Current Leader: " + this.currentLeader + "\n";
 
-		appended += "Unexplored: \n";
+		/*appended += "Unexplored: \n";
 		Iterator<Integer> it = this.unexplored.iterator();
 		while (it.hasNext()) {
 			appended += "\t " + (Integer) it.next() + " \n";
+		}*/
+		if (!this.children.isEmpty()) {
+			appended += "Children: \n";
+			Iterator<Integer> it = this.children.iterator();
+			while (it.hasNext()) {
+				appended += "\t " + (Integer) it.next() + " \n";
+			}
+		}else {
+			appended += "I am a leaf.";
 		}
-		appended += "Children: \n";
-		it = this.children.iterator();
-		while (it.hasNext()) {
-			appended += "\t " + (Integer) it.next() + " \n";
-		}
+
 		return appended;
 	}
 
@@ -116,8 +120,8 @@ public class TreeManager {
 			if (this.parent != this.replicaId) {
 				TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.PARENT);
 				commS.send(new int[] { this.parent }, signedMessage(tm));
-				//System.out.println("Finished Spanning Tree: \n" + toString());
-				//this.finish = true;
+				// System.out.println("Finished Spanning Tree: \n" + toString());
+				// this.finish = true;
 				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED));
 			}
 		}
@@ -148,11 +152,11 @@ public class TreeManager {
 		explore();
 	}
 
-	public void receivedFinished(TreeMessage msg) {		
+	public void receivedFinished(TreeMessage msg) {
 		if (!this.finish) {
 			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
 			this.finish = true;
-			if(replicaId != parent) {
+			if (replicaId != parent) {
 				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.FINISHED);
 				commS.send(new int[] { parent }, signedMessage(tm));
 			}
@@ -185,17 +189,59 @@ public class TreeManager {
 	}
 
 	public void forwardToParent(ConsensusMessage consMsg) {
-		commS.send(new int[] { this.parent }, consMsg);
+		if(this.parent != replicaId)
+			commS.send(new int[] { this.parent }, consMsg);
 	}
 
 	public void forwardToChildren(ConsensusMessage consMsg) {
+		if (this.children.isEmpty()) {
+			System.out.println("I have no children: ");
+			return;
+		}
 		Iterator<Integer> it = this.children.iterator();
 		while (it.hasNext()) {
 			Integer child = (Integer) it.next();
-			System.out.println("Forwarding message to children: " + child);
+			System.out.println("Forwarding message to children: "+child+", Msg: " + consMsg.toString() );
 			commS.send(new int[] { child }, consMsg);
 		}
-		if(this.children.isEmpty())
-			System.out.println("I have no children: ");
+		
+	}
+
+	public synchronized void createStaticTree() {
+		if (!this.finish) {
+			switch (replicaId) {
+			case 0:
+				this.parent = 0;
+				this.children.add(1);
+				this.children.add(2);
+				break;
+			case 1:
+				this.parent = 0;
+				this.children.add(3);
+				this.children.add(4);
+				break;
+			case 2:
+				this.parent = 0;
+				this.children.add(5);
+				this.children.add(6);
+				break;
+			case 3:
+				this.parent = 1;
+				break;
+			case 4:
+				this.parent = 1;
+				break;
+			case 5:
+				this.parent = 2;
+				break;
+			case 6:
+				this.parent = 2;
+				break;
+			default:
+				break;
+			}
+			this.finish = true;
+			System.out.println("Stacic tree created. ");
+		}
 	}
 }

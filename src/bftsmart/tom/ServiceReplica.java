@@ -400,7 +400,7 @@ public class ServiceReplica {
 									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
 									false);
 							
-							TreeMessage tm = new TreeMessage(id, TreeOperationType.INIT);
+							TreeMessage tm = new TreeMessage(id, TreeOperationType.STATIC_TREE);
 							/**
 							 * Signing message.
 							 */

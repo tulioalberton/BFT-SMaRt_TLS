@@ -180,7 +180,8 @@ public class ServerCommunicationSystem extends Thread {
 		if (sm instanceof TOMMessage) {
 			clientsConn.send(targets, (TOMMessage) sm, false);
 		} else {
-			logger.debug("--> sending message from: {} -> {}" + sm.getSender(), targets);
+			logger.debug("--> sending message from: {} -> {}" , 
+					sm.getSender(), targets);
 			if(connType.equals(ConnType.SSL_TLS))
 				serversConnSSLTLS.send(targets, sm);
 			else

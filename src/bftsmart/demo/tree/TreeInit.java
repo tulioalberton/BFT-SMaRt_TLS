@@ -30,9 +30,8 @@ import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
 /**
  * Example client that updates a BFT replicated service (a counter).
- *
  */
-public class TreeClient {
+public class TreeInit {
 
 	private static Logger logger;
 	
@@ -43,14 +42,12 @@ public class TreeClient {
 	@SuppressWarnings("static-access")
 	public static void main(String[] args) throws IOException {
 		
-		logger = LoggerFactory.getLogger(ThroughputDebugClient.class);
+		logger = LoggerFactory.getLogger(TreeInit.class);
 		
 		if (args.length < 2) {
 			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG>");
 			System.exit(-1);
 		}
-
-		logger = LoggerFactory.getLogger(TreeClient.class);
 		
 		clientId = Integer.parseInt(args[0]);
 		switch (args[1].toUpperCase()) {
@@ -67,7 +64,7 @@ public class TreeClient {
 		
 		treeMessage = new TreeMessage(clientId, treeOperation);
 		
-		Client client = new TreeClient.Client(clientId, treeMessage);
+		Client client = new TreeInit.Client(clientId, treeMessage);
 		client.start();
 		logger.info("Clients done.");
 	}

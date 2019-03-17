@@ -34,7 +34,8 @@ public class TreeMessage extends SystemMessage {
 		M, 
 		ALREADY,
 		PARENT,
-		FINISHED;
+		FINISHED,
+		STATIC_TREE;
 		
 		
 	};
