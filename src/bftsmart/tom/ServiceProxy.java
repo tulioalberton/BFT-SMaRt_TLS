@@ -435,7 +435,8 @@ public class ServiceProxy extends TOMSender {
 				}
 				
 				if (response == null) {
-					if (requestType.equals(TOMMessageType.ORDERED_REQUEST)) {
+					if (requestType.equals(TOMMessageType.ORDERED_REQUEST) || 
+							requestType.equals(TOMMessageType.REQUEST_LEADER) ) {
 						if (receivedReplies == getViewManager().getCurrentViewN()) {
 							reqId = -1;
 							this.sm.release(); // resumes the thread that is executing the "invoke" method

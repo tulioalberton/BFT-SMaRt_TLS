@@ -54,6 +54,7 @@ import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.util.BatchReader;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.ForwardTree;
 
 /**
  * This class represents the acceptor role in the consensus protocol. This class
@@ -193,24 +194,22 @@ public final class AcceptorSSLTLS {
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
 			
+			if(communication.getTreeManager().getFinish()) {
 			//we will pass all messages through the spanning-tree.
-			communication.getTreeManager().forwardToChildren(msg);
+				ForwardTree fwdTree = new ForwardTree(me, msg);			
+				communication.getTreeManager().forwardToChildren(fwdTree);
+			}
+			
 			proposeReceived(epoch, msg);			
 		}
 			break;
 		case MessageFactory.WRITE: {
-			//we will pass all messages through the spanning-tree.
-			//communication.getTreeManager().forwardToChildren(msg);
-			//communication.getTreeManager().forwardToParent(msg);
-			if(consensus.getId()==0)
+			
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
 		case MessageFactory.ACCEPT: {
-			//we will pass all messages through the spanning-tree.
-			//communication.getTreeManager().forwardToChildren(msg);
-			//communication.getTreeManager().forwardToParent(msg);
-			if(consensus.getId()==0)
+			
 			acceptReceived(epoch, msg);
 		}
 		}

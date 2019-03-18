@@ -44,6 +44,7 @@ import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.core.messages.TOMMessageType;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.ForwardTree;
 
 /**
  * This class represents the acceptor role in the consensus protocol. This class
@@ -167,7 +168,8 @@ public final class Acceptor {
 		case MessageFactory.PROPOSE: {
 			
 			//we will pass all messages through the spanning-tree.
-			communication.getTreeManager().forwardToChildren(msg);
+			ForwardTree fwdTree = new ForwardTree(msg.getSender(), msg);
+			communication.getTreeManager().forwardToChildren(fwdTree);
 			
 			proposeReceived(epoch, msg);
 		}

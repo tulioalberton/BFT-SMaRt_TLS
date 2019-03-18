@@ -19,14 +19,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
-import java.net.SocketImpl;
-import java.net.SocketImplFactory;
 import java.net.SocketTimeoutException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -34,26 +32,19 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import bftsmart.communication.SystemMessage;
-import bftsmart.reconfiguration.ServerViewController;
-import bftsmart.tom.ServiceReplica;
-import bftsmart.tom.util.TOMUtil;
-import jdk.net.Sockets;
-
-import java.net.InetAddress;
-import java.util.HashMap;
-
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLServerSocket;
-import javax.net.ssl.SSLServerSocketFactory;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import bftsmart.communication.SystemMessage;
+import bftsmart.consensus.messages.ConsensusMessage;
+import bftsmart.reconfiguration.ServerViewController;
+import bftsmart.tom.ServiceReplica;
+import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
@@ -201,18 +192,23 @@ public class ServersCommunicationLayer extends Thread {
 
 		byte[] data = bOut.toByteArray();
 
-		for (int i : targets) {
+		for (int target : targets) {
 			try {
-				if (i == me) {
+				if (target == me) {
 					sm.authenticated = true;
 					inQueue.put(sm);
 				} else {
-					// logger.info("Going to send a message to replica: {}", i);
-					// logger.info("Going to send a message to replica: {}, data:\n{} ", i, data);
-					// ******* EDUARDO BEGIN **************//
-					// connections[i].send(data);
-					getConnection(i).send(data, useMAC);
-					// ******* EDUARDO END **************//
+					if(sm instanceof TreeMessage)
+						logger.debug("Sending TreeMessage from:{} -> to:{}.", me,  target);
+					else if (sm instanceof ConsensusMessage) {
+						ConsensusMessage cm = (ConsensusMessage) sm;
+						logger.debug("Sending ConsensusMessage type:{} "
+								+ "from:{} -> to:{}.", cm.getType(), me,  target);
+					}
+					else 
+						logger.debug("Sending message from:{} -> to:{}.", me,  target);
+					
+					getConnection(target).send(data, useMAC);
 				}
 			} catch (InterruptedException ex) {
 				logger.error("Interruption while inserting message into inqueue", ex);

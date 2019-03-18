@@ -38,6 +38,7 @@ import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.leaderchange.LCMessage;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.ForwardTree;
 import bftsmart.tree.messages.TreeMessage;
 
 /**
@@ -131,7 +132,77 @@ public class MessageHandlerSSLTLS {
 				logger.warn("Discarding unauthenticated message from " + sm.getSender());
 			}
 
-		} else {
+		} else if(sm instanceof ForwardTree) {
+        	ForwardTree fwd = (ForwardTree) sm;
+        	
+        	ConsensusMessage consMsg = fwd.getConsensusMessage();        	
+        	logger.info("### Catched a ForwardTree with a ConsensusMessage embedded: {}", consMsg.getType());
+        	
+        	this.tm.forwardToChildren(fwd);
+        	
+        	
+        	/**
+        	 * 
+        	 * TESTE ONLY
+        	 * 
+        	 */
+        	
+        	int myId = tomLayer.controller.getStaticConf().getProcessId();
+
+			
+			// If using SSL / TLS, the MAC will be turned off (TLS protocols already does),
+			// so the else is unnecessary with SSL/TLS.
+			if (tomLayer.controller.getStaticConf().getUseMACs() == false 
+					|| consMsg.authenticated
+					|| consMsg.getSender() == myId) {				
+				acceptor.deliver(consMsg);
+			}
+			else if (consMsg.getType() == MessageFactory.ACCEPT 
+					&& consMsg.getProof() != null) {
+				
+				// We are going to verify the MAC vector at the algorithm level
+				HashMap<Integer, byte[]> macVector = (HashMap<Integer, byte[]>) consMsg.getProof();
+
+				byte[] recvMAC = macVector.get(myId);
+
+				ConsensusMessage cm  = new ConsensusMessage(MessageFactory.ACCEPT, consMsg.getNumber(),
+						consMsg.getEpoch(), consMsg.getSender(), consMsg.getValue());
+
+				ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
+				try {
+					new ObjectOutputStream(bOut).writeObject(cm);
+				} catch (IOException ex) {
+					logger.error("Failed to serialize consensus message", ex);
+				}
+
+				byte[] data = bOut.toByteArray();
+
+				byte[] myMAC = null;
+
+				try {
+					// this.mac.init(key);
+					this.mac.init(tomLayer.getCommunication().getServersConnSSLTLS().getSecretKey(consMsg.getSender()));
+					myMAC = this.mac.doFinal(data);
+				} catch (InvalidKeyException ex) {
+					logger.error("Failed to generate MAC", ex);
+				}
+
+				if (recvMAC != null && myMAC != null && Arrays.equals(recvMAC, myMAC))
+					acceptor.deliver(consMsg);
+				else {
+					logger.warn("Invalid MAC from " + sm.getSender());
+				}
+			} else {
+				logger.warn("Discarding unauthenticated message from " + sm.getSender());
+			}
+
+        	
+        	/**
+        	 * END
+        	 */
+        	
+        	
+        } else {
 			if (tomLayer.controller.getStaticConf().getUseMACs() == false || sm.authenticated) {
 				/*** This is Joao's code, related to leader change */
 				if (sm instanceof LCMessage) {
@@ -196,40 +267,7 @@ public class MessageHandlerSSLTLS {
 					/******************************************************************/
 				} else if(sm instanceof TreeMessage){
 					TreeMessage treeM = (TreeMessage) sm;
-					switch (treeM.getTreeOperationType()) {
-					case INIT:
-						//logger.warn("" + this.tm.toString());
-						this.tm.initProtocol();
-					break;
-					case M:
-						//logger.warn("Received TreeMessage M from: {}", treeM.getSender());
-						this.tm.receivedM(treeM);
-					break;
-					case ALREADY:
-						//logger.warn("Received TreeMessage ALREADY from: {}", treeM.getSender());
-						this.tm.receivedAlready(treeM);
-					break;
-					case PARENT:
-						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
-						this.tm.receivedParent(treeM);
-					break;
-					case FINISHED:
-						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
-						this.tm.receivedFinished(treeM);
-					break;
-					case RECONFIG:
-						logger.warn("Received TreeMessage RECONFIG");
-					break;							
-					case STATIC_TREE:
-						logger.warn("Received TreeMessage STATIC_TREE, timestamp:{}",
-								treeM.getTimestamp());
-						this.tm.createStaticTree();
-						logger.warn("{}" , this.tm.toString());
-					break;
-					default:
-						logger.warn("TreeMessage NOOP.");
-						break;
-					}
+					this.tm.treatMessages(treeM);
 				}
 				else {
 					logger.warn("UNKNOWN MESSAGE TYPE: " + sm);

@@ -21,7 +21,6 @@ import java.security.SignatureException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import bftsmart.demo.debug.ThroughputDebugClient;
 import bftsmart.tom.ServiceProxy;
 import bftsmart.tom.core.messages.TOMMessageType;
 import bftsmart.tom.util.TOMUtil;
@@ -59,6 +58,9 @@ public class TreeInit {
 			break;
 		default:
 			treeOperation = TreeOperationType.NOOP;
+			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG>");
+			logger.info("Catched NOOP...");
+			System.exit(-1);
 			break;
 		}
 		

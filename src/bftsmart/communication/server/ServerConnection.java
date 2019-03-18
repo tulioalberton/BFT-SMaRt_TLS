@@ -165,11 +165,10 @@ public class ServerConnection {
      * Used to send packets to the remote server.
      */
     public final void send(byte[] data, boolean useMAC) throws InterruptedException {
-    	//logger.debug("MSG RECEIVED AT SEND METHOD.....");
     	if (useSenderThread) {
             //only enqueue messages if there queue is not full
             if (!useMAC) {
-                logger.debug("Not sending defaultMAC " + System.identityHashCode(data));
+                logger.trace("Not sending defaultMAC " + System.identityHashCode(data));
                 noMACs.add(System.identityHashCode(data));
             }
 
@@ -457,7 +456,7 @@ public class ServerConnection {
                     //sendBytes(data, noMACs.contains(System.identityHashCode(data)));
                     int ref = System.identityHashCode(data);
                     boolean sendMAC = !noMACs.remove(ref);
-                    logger.debug((sendMAC ? "Sending" : "Not sending") + " MAC for data " + ref);
+                    logger.trace((sendMAC ? "Sending" : "Not sending") + " MAC for data " + ref);
                     sendBytes(data, sendMAC);
                 }
             }

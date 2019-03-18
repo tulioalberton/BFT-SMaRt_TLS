@@ -16,7 +16,6 @@ limitations under the License.
 package bftsmart.communication;
 
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 import javax.crypto.SecretKey;
 
@@ -35,6 +34,7 @@ import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
@@ -149,7 +149,14 @@ public class ServerCommunicationSystem extends Thread {
 				SystemMessage sm = inQueue.take();
 				
 				if (sm != null) {
-					logger.debug("<-------receiving---------- " + sm);
+					if(sm instanceof TreeMessage) {
+						TreeMessage tm = (TreeMessage) sm;
+						logger.debug("<-- receiving TreeMessage: " + tm.getTreeOperationType());
+					}
+					else {
+						logger.trace("<-- receiving: " + sm);
+					}
+					
 					if(connType.equals(ConnType.SSL_TLS))
 						messageHandlerSSLTLS.processData(sm);
 					else
@@ -185,8 +192,9 @@ public class ServerCommunicationSystem extends Thread {
 		if (sm instanceof TOMMessage) {
 			clientsConn.send(targets, (TOMMessage) sm, false);
 		} else {
-			logger.debug("--> sending message from: {} -> {}" , 
-					sm.getSender(), targets);
+			
+			logger.trace("--> sending message from: {} -> {}" , sm.getSender(), targets);
+			
 			if(connType.equals(ConnType.SSL_TLS))
 				serversConnSSLTLS.send(targets, sm);
 			else

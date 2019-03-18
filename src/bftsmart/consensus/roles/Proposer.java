@@ -16,8 +16,10 @@ limitations under the License.
 package bftsmart.consensus.roles;
 
 import bftsmart.communication.ServerCommunicationSystem;
+import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.consensus.messages.MessageFactory;
 import bftsmart.reconfiguration.ServerViewController;
+import bftsmart.tree.messages.ForwardTree;
 
 /**
  * This class represents the proposer role in the consensus protocol.
@@ -55,8 +57,10 @@ public class Proposer {
          * Spanning-tree communication.
          */
     	if(communication.getTreeManager().getFinish()) {
-        	communication.getTreeManager().forwardToChildren(
-        			factory.createPropose(cid, 0, value));
+    		ConsensusMessage propose = factory.createPropose(cid, 0, value);
+    		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose); 
+    		
+        	communication.getTreeManager().forwardToChildren(fwdTree);
         }else{ 
             communication.send(this.controller.getCurrentViewAcceptors(),
                     factory.createPropose(cid, 0, value));

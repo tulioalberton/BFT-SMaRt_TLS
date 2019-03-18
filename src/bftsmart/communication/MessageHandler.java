@@ -15,18 +15,6 @@ limitations under the License.
 */
 package bftsmart.communication;
 
-import bftsmart.consensus.messages.MessageFactory;
-import bftsmart.consensus.messages.ConsensusMessage;
-import bftsmart.consensus.roles.Acceptor;
-import bftsmart.statemanagement.SMMessage;
-import bftsmart.tom.core.TOMLayer;
-import bftsmart.tom.core.messages.TOMMessage;
-import bftsmart.tom.core.messages.ForwardedMessage;
-import bftsmart.tom.leaderchange.LCMessage;
-import bftsmart.tom.util.TOMUtil;
-import bftsmart.tree.TreeManager;
-import bftsmart.tree.messages.TreeMessage;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -34,10 +22,24 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashMap;
+
 import javax.crypto.Mac;
-import javax.crypto.SecretKey;
-import org.slf4j.LoggerFactory;
+
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import bftsmart.consensus.messages.ConsensusMessage;
+import bftsmart.consensus.messages.MessageFactory;
+import bftsmart.consensus.roles.Acceptor;
+import bftsmart.statemanagement.SMMessage;
+import bftsmart.tom.core.TOMLayer;
+import bftsmart.tom.core.messages.ForwardedMessage;
+import bftsmart.tom.core.messages.TOMMessage;
+import bftsmart.tom.leaderchange.LCMessage;
+import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.ForwardTree;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
@@ -125,6 +127,8 @@ public class MessageHandler {
                 logger.warn("Discarding unauthenticated message from " + sm.getSender());
             }
 
+        }else if(sm instanceof ForwardTree) {
+        	logger.info("CATCHED FORWARD TREE MESSAGE");
         } else {
         	if (tomLayer.controller.getStaticConf().getUseMACs() == false || sm.authenticated) {
 	            /*** This is Joao's code, related to leader change */
@@ -183,40 +187,7 @@ public class MessageHandler {
 	            /******************************************************************/
 	            }else if(sm instanceof TreeMessage){
 					TreeMessage treeM = (TreeMessage) sm;
-					switch (treeM.getTreeOperationType()) {
-					case INIT:
-						//logger.warn("" + this.tm.toString());
-						this.tm.initProtocol();
-					break;
-					case M:
-						//logger.warn("Received TreeMessage M from: {}", treeM.getSender());
-						this.tm.receivedM(treeM);
-					break;
-					case ALREADY:
-						//logger.warn("Received TreeMessage ALREADY from: {}", treeM.getSender());
-						this.tm.receivedAlready(treeM);
-					break;
-					case PARENT:
-						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
-						this.tm.receivedParent(treeM);
-					break;
-					case FINISHED:
-						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
-						this.tm.receivedFinished(treeM);
-					break;
-					case RECONFIG:
-						logger.warn("Received TreeMessage RECONFIG");
-					break;							
-					case STATIC_TREE:
-						logger.warn("Received TreeMessage STATIC_TREE, timestamp:{}",
-								treeM.getTimestamp());
-						this.tm.createStaticTree();
-						logger.warn("{}" , this.tm.toString());
-					break;
-					default:
-						logger.warn("TreeMessage NOOP.");
-						break;
-					}
+					this.tm.treatMessages(treeM);
 				} else {
 	            	logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
 	            }

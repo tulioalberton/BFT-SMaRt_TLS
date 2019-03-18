@@ -61,6 +61,7 @@ import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.ForwardTree;
 import bftsmart.tree.messages.TreeMessage;
 
 /**
@@ -285,6 +286,11 @@ public class ServersCommunicationLayerSSLTLS extends Thread {
 						ConsensusMessage cm = (ConsensusMessage) sm;
 						logger.debug("Sending ConsensusMessage type:{} "
 								+ "from:{} -> to:{}.", cm.getType(), me,  target);
+					}else if (sm instanceof ForwardTree) {
+						ForwardTree fwd = (ForwardTree) sm;
+						ConsensusMessage cm = fwd.getConsensusMessage();
+						logger.debug("Forwarding ForwardTree message Originator Sender:{}, "
+								+ "from:{} -> to:{}.", cm.getSender(), me,  target);
 					}
 					else 
 						logger.debug("Sending message from:{} -> to:{}.", me,  target);

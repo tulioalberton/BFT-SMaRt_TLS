@@ -325,6 +325,7 @@ public class ServiceReplica {
 						throw new RuntimeException("Should never reach here!");
 					} else
 						switch (request.getReqType()) {
+						case REQUEST_LEADER:
 						case ORDERED_REQUEST:
 							noop = false;
 							numRequests++;
@@ -391,33 +392,25 @@ public class ServiceReplica {
 							break;
 						case TREE_INIT:
 							logger.info("Received a TREE_INIT message, "
-									 + "from clientId: {}, calling Static Tree Creation", 
-									 request.getSender());
+									 + "from clientId: {}", request.getSender());
 							
+							/**
+							 * To create a static tree version, for test only purpose.
+							 * There are two ways, call the treatMessages(msg) with a TreeOperationType.STATIC_TREE.
+							 * or, the easy way, call createStaticTree() directly. 
+							 * 
+							 */
 							cs.getTreeManager().createStaticTree();
 							
-							/*TreeMessage tm = new TreeMessage(id, TreeOperationType.STATIC_TREE);
-							logger.info("Creating a TREE_INIT message, "
-									 + "from clientId: {}, Timestamp:{}",
-									 request.getSender(),
-									 tm.getTimestamp());
-							 */
 							/**
-							 * Signing message.
+							 * To initialize the spanning-tree protocol
 							 */
-							/*Signature eng;
-							try {
-								eng = TOMUtil.getSigEngine();
-								eng.initSign(SVController.getStaticConf().getPrivateKey());
-								eng.update(tm.toString().getBytes());
-								tm.setSignature(eng.sign());
-							} catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
-								e.printStackTrace();
-							}*/
-							/*tomLayer.getCommunication().send(
-									this.SVController.getCurrentViewOtherAcceptors(),
-									tm);
-							*/
+							//cs.getTreeManager().initProtocol();
+							
+							
+							/**
+							 * Generate the answer to client. Does not imply the tree creation... 
+							 */
 							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
 									request.getReqType(), request.getSession(), request.getSequence(),
 									request.getOperationId(), request.getReplyServer(),
@@ -430,7 +423,7 @@ public class ServiceReplica {
 									request.getOperationId(), "1".toString().getBytes(),
 									SVController.getCurrentViewId(), request.getReqType());
 							replier.manageReply(request, msgCtxTree);
-							logger.info("Reply delivered...");					
+							logger.info("Reply for TreeMessage (TREE_INIT) delivered...");					
 
 							break;
 						default: // this code should never be executed
