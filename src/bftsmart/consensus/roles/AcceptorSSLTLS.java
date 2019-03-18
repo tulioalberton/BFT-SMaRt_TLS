@@ -185,7 +185,9 @@ public final class AcceptorSSLTLS {
 	 */
 	public final void processMessage(ConsensusMessage msg) {
 		Consensus consensus = executionManager.getConsensus(msg.getNumber());
-
+		
+		logger.debug("CID: {}" , consensus.getId());
+		
 		consensus.lock.lock();
 		Epoch epoch = consensus.getEpoch(msg.getEpoch(), controller);
 		switch (msg.getType()) {
@@ -200,7 +202,7 @@ public final class AcceptorSSLTLS {
 			//we will pass all messages through the spanning-tree.
 			//communication.getTreeManager().forwardToChildren(msg);
 			//communication.getTreeManager().forwardToParent(msg);
-			
+			if(consensus.getId()==0)
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
@@ -208,6 +210,7 @@ public final class AcceptorSSLTLS {
 			//we will pass all messages through the spanning-tree.
 			//communication.getTreeManager().forwardToChildren(msg);
 			//communication.getTreeManager().forwardToParent(msg);
+			if(consensus.getId()==0)
 			acceptReceived(epoch, msg);
 		}
 		}

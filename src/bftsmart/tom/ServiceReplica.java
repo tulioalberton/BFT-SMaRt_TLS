@@ -390,21 +390,22 @@ public class ServiceReplica {
 							SVController.enqueueUpdate(request);
 							break;
 						case TREE_INIT:
-							logger.info("Received a TREE_INIT message, " + "from clientId: " + request.getSender());
-
-							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
-									request.getReqType(), request.getSession(), request.getSequence(),
-									request.getOperationId(), request.getReplyServer(),
-									request.serializedMessageSignature, firstRequest.timestamp, request.numOfNonces,
-									request.seed, regencies[consensusCount], leaders[consensusCount],
-									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
-									false);
+							logger.info("Received a TREE_INIT message, "
+									 + "from clientId: {}, calling Static Tree Creation", 
+									 request.getSender());
 							
-							TreeMessage tm = new TreeMessage(id, TreeOperationType.STATIC_TREE);
+							cs.getTreeManager().createStaticTree();
+							
+							/*TreeMessage tm = new TreeMessage(id, TreeOperationType.STATIC_TREE);
+							logger.info("Creating a TREE_INIT message, "
+									 + "from clientId: {}, Timestamp:{}",
+									 request.getSender(),
+									 tm.getTimestamp());
+							 */
 							/**
 							 * Signing message.
 							 */
-							Signature eng;
+							/*Signature eng;
 							try {
 								eng = TOMUtil.getSigEngine();
 								eng.initSign(SVController.getStaticConf().getPrivateKey());
@@ -412,10 +413,18 @@ public class ServiceReplica {
 								tm.setSignature(eng.sign());
 							} catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
 								e.printStackTrace();
-							}
-							tomLayer.getCommunication().send(
+							}*/
+							/*tomLayer.getCommunication().send(
 									this.SVController.getCurrentViewOtherAcceptors(),
 									tm);
+							*/
+							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
+									request.getReqType(), request.getSession(), request.getSequence(),
+									request.getOperationId(), request.getReplyServer(),
+									request.serializedMessageSignature, firstRequest.timestamp, request.numOfNonces,
+									request.seed, regencies[consensusCount], leaders[consensusCount],
+									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
+									false);
 							
 							request.reply = new TOMMessage(id, request.getSession(), request.getSequence(),
 									request.getOperationId(), "1".toString().getBytes(),
@@ -595,7 +604,11 @@ public class ServiceReplica {
 				SVController,
 				executionManager.getCurrentLeader()
 				);
-		cs.setTreeManager(tm);
+		if (cs.getConnType() == ConnType.SSL_TLS) {
+			cs.setTreeManagerSSLTLS(tm);
+		}else {	
+			cs.setTreeManager(tm);
+		}
 	}
 
 	/**

@@ -27,6 +27,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
+import java.util.concurrent.locks.ReentrantLock;
 
 import bftsmart.communication.ServerCommunicationSystem;
 import bftsmart.consensus.messages.ConsensusMessage;
@@ -39,7 +40,7 @@ public class TreeManager {
 
 	private ServerCommunicationSystem commS = null;
 	private ServerViewController SVController = null;
-	// private ReentrantLock lock = new ReentrantLock();
+	private ReentrantLock lock = new ReentrantLock();
 
 	private int replicaId;
 	private int currentLeader = -1;
@@ -111,6 +112,7 @@ public class TreeManager {
 	}
 
 	private void explore() {
+		lock.lock();
 		if (!this.unexplored.isEmpty()) {
 			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M);
 			int toSend = this.unexplored.poll();
@@ -125,18 +127,23 @@ public class TreeManager {
 				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED));
 			}
 		}
+		lock.unlock();
 	}
 
 	public void receivedM(TreeMessage msg) {
 		if (this.parent == -1) {
+			lock.lock();
 			this.parent = msg.getSender();
 			this.unexplored.remove(msg.getSender());
+			lock.unlock();
 			// System.out.println("Defining "+msg.getSender()+" as my patent.");
 			explore();
 		} else {
 			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY);
 			commS.send(new int[] { msg.getSender() }, signedMessage(tm));
+			lock.lock();
 			this.unexplored.remove(msg.getSender());
+			lock.unlock();
 			// System.out.println("Sending ALREADY msg to: "+msg.getSender());
 		}
 	}
@@ -147,8 +154,10 @@ public class TreeManager {
 
 	public void receivedParent(TreeMessage msg) {
 		System.out.println("Adding " + msg.getSender() + " as a child.");
+		lock.lock();
 		if (!this.children.contains(msg.getSender()))
 			this.children.add(msg.getSender());
+		lock.unlock();
 		explore();
 	}
 
@@ -213,20 +222,20 @@ public class TreeManager {
 			case 0:
 				this.parent = 0;
 				this.children.add(1);
-				this.children.add(2);
+				//this.children.add(2);
 				break;
 			case 1:
 				this.parent = 0;
-				this.children.add(3);
-				this.children.add(4);
+				this.children.add(2);
+				//this.children.add(4);
 				break;
 			case 2:
-				this.parent = 0;
-				this.children.add(5);
-				this.children.add(6);
+				this.parent = 1;
+				this.children.add(3);
+				//this.children.add(6);
 				break;
 			case 3:
-				this.parent = 1;
+				this.parent = 2;
 				break;
 			case 4:
 				this.parent = 1;
@@ -241,7 +250,7 @@ public class TreeManager {
 				break;
 			}
 			this.finish = true;
-			System.out.println("Stacic tree created. ");
+			System.out.println("Stacic tree created. \n" + toString());
 		}
 	}
 }

@@ -57,9 +57,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import bftsmart.communication.SystemMessage;
+import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
@@ -277,7 +279,16 @@ public class ServersCommunicationLayerSSLTLS extends Thread {
 					inQueue.put(sm);
 					logger.debug("Queueing (delivering) my own message, me:{}", target);
 				} else {
-					logger.debug("Sending message from:{} -> to:{}.", me,  target);
+					if(sm instanceof TreeMessage)
+						logger.debug("Sending TreeMessage from:{} -> to:{}.", me,  target);
+					else if (sm instanceof ConsensusMessage) {
+						ConsensusMessage cm = (ConsensusMessage) sm;
+						logger.debug("Sending ConsensusMessage type:{} "
+								+ "from:{} -> to:{}.", cm.getType(), me,  target);
+					}
+					else 
+						logger.debug("Sending message from:{} -> to:{}.", me,  target);
+					
 					getConnection(target).send(data);
 				}
 			} catch (InterruptedException ex) {

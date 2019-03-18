@@ -44,6 +44,7 @@ public class TreeMessage extends SystemMessage {
 	private TreeOperationType treeOperation; // TreeOperationType.
 	private boolean result = false; // result of the operation // OK:1:true and NOK:0:false
 	
+	private long timestamp;
 	/**
 	 * Constructors.
 	 */
@@ -53,6 +54,7 @@ public class TreeMessage extends SystemMessage {
 	public TreeMessage(int from, TreeOperationType treeOperation) {
 		super(from);
 		this.treeOperation = treeOperation;
+		this.timestamp = System.nanoTime();
 	}
 
 	/**
@@ -67,6 +69,8 @@ public class TreeMessage extends SystemMessage {
 		out.write(signature);
 		
 		out.writeBoolean(result);
+		
+		out.writeLong(timestamp);
 	}
 
 	@Override
@@ -79,6 +83,8 @@ public class TreeMessage extends SystemMessage {
 		in.read(this.signature);
 		
 		this.result = in.readBoolean();
+		
+		this.timestamp = in.readLong();
 	}
 
 	/**
@@ -93,6 +99,9 @@ public class TreeMessage extends SystemMessage {
 		return signature;
 	}
 
+	public long getTimestamp() {
+		return timestamp;
+	}
 	public boolean getResult() {
 		return result;
 	}

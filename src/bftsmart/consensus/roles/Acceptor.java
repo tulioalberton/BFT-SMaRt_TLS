@@ -165,11 +165,10 @@ public final class Acceptor {
 		Epoch epoch = consensus.getEpoch(msg.getEpoch(), controller);
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
-			/*
-			 * logger.trace("Epoch on (RECEIVED PROPOSE): {}", epoch.toString()); logger.
-			 * debug("Size of Consensus Message (PROPOSE), before process it. Size:{}.",
-			 * sizeCM(msg));
-			 */
+			
+			//we will pass all messages through the spanning-tree.
+			communication.getTreeManager().forwardToChildren(msg);
+			
 			proposeReceived(epoch, msg);
 		}
 			break;

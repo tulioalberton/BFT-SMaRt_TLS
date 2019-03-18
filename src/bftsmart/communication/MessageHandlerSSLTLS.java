@@ -221,7 +221,8 @@ public class MessageHandlerSSLTLS {
 						logger.warn("Received TreeMessage RECONFIG");
 					break;							
 					case STATIC_TREE:
-						logger.warn("Received TreeMessage STATIC_TREE");
+						logger.warn("Received TreeMessage STATIC_TREE, timestamp:{}",
+								treeM.getTimestamp());
 						this.tm.createStaticTree();
 						logger.warn("{}" , this.tm.toString());
 					break;

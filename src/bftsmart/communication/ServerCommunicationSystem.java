@@ -106,12 +106,15 @@ public class ServerCommunicationSystem extends Thread {
 	public void setAcceptor(Acceptor acceptor) {
 		messageHandler.setAcceptor(acceptor);
 	}
-
+	public void setTreeManager(TreeManager tm) {
+		messageHandler.setTreeManager(tm);
+	}
+	
 	public void setAcceptorSSLTLS(AcceptorSSLTLS acceptor) {
 		messageHandlerSSLTLS.setAcceptorSSLTLS(acceptor);
 	}
 	
-	public void setTreeManager(TreeManager tm) {
+	public void setTreeManagerSSLTLS(TreeManager tm) {
 		messageHandlerSSLTLS.setTreeManager(tm);
 	}
 	
@@ -142,8 +145,9 @@ public class ServerCommunicationSystem extends Thread {
 					logger.debug("After " + count + " messages, inQueue size=" + inQueue.size());
 				}
 
-				SystemMessage sm = inQueue.poll(MESSAGE_WAIT_TIME, TimeUnit.MILLISECONDS);
-
+				//SystemMessage sm = inQueue.poll(MESSAGE_WAIT_TIME, TimeUnit.MILLISECONDS);
+				SystemMessage sm = inQueue.take();
+				
 				if (sm != null) {
 					logger.debug("<-------receiving---------- " + sm);
 					if(connType.equals(ConnType.SSL_TLS))
@@ -152,6 +156,7 @@ public class ServerCommunicationSystem extends Thread {
 						messageHandler.processData(sm);
 					count++;
 				} else {
+					logger.debug("<------- verifying ---------- ");
 					if(connType.equals(ConnType.SSL_TLS))
 						messageHandlerSSLTLS.verifyPending();
 					else
@@ -236,7 +241,10 @@ public class ServerCommunicationSystem extends Thread {
 	}
 	
 	public TreeManager getTreeManager() {
-		return messageHandlerSSLTLS.getTreeManager();
+		if(connType.equals(ConnType.SSL_TLS))
+			return messageHandlerSSLTLS.getTreeManager();
+		else
+			return messageHandler.getTreeManager();
 	}
 
 }

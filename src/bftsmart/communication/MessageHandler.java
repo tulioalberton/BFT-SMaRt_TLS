@@ -24,6 +24,9 @@ import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.core.messages.ForwardedMessage;
 import bftsmart.tom.leaderchange.LCMessage;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.TreeMessage;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -47,6 +50,7 @@ public class MessageHandler {
     private Acceptor acceptor;
     private TOMLayer tomLayer;
     private Mac mac;
+    private TreeManager tm;
     
     public MessageHandler() {
         try {
@@ -62,6 +66,14 @@ public class MessageHandler {
     public void setTOMLayer(TOMLayer tomLayer) {
         this.tomLayer = tomLayer;
     }
+    
+    public TreeManager getTreeManager() {
+		return this.tm;
+	}
+    public void setTreeManager(TreeManager tm) {
+		//logger.warn(" TREE MANAGER DEFINED....: " + tm.toString());
+		this.tm = tm;
+	}
 
     @SuppressWarnings("unchecked")
     protected void processData(SystemMessage sm) {
@@ -71,7 +83,8 @@ public class MessageHandler {
             
             ConsensusMessage consMsg = (ConsensusMessage) sm;
 
-            if (tomLayer.controller.getStaticConf().getUseMACs() == false || consMsg.authenticated || consMsg.getSender() == myId) 
+            if (tomLayer.controller.getStaticConf().getUseMACs() == false 
+            		|| consMsg.authenticated || consMsg.getSender() == myId) 
             	acceptor.deliver(consMsg);
             else if (consMsg.getType() == MessageFactory.ACCEPT && consMsg.getProof() != null) {
                                         
@@ -168,7 +181,43 @@ public class MessageHandler {
 	                        break;
 	                }
 	            /******************************************************************/
-	            } else {
+	            }else if(sm instanceof TreeMessage){
+					TreeMessage treeM = (TreeMessage) sm;
+					switch (treeM.getTreeOperationType()) {
+					case INIT:
+						//logger.warn("" + this.tm.toString());
+						this.tm.initProtocol();
+					break;
+					case M:
+						//logger.warn("Received TreeMessage M from: {}", treeM.getSender());
+						this.tm.receivedM(treeM);
+					break;
+					case ALREADY:
+						//logger.warn("Received TreeMessage ALREADY from: {}", treeM.getSender());
+						this.tm.receivedAlready(treeM);
+					break;
+					case PARENT:
+						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
+						this.tm.receivedParent(treeM);
+					break;
+					case FINISHED:
+						//logger.warn("Received TreeMessage PARENT from: {}", treeM.getSender());
+						this.tm.receivedFinished(treeM);
+					break;
+					case RECONFIG:
+						logger.warn("Received TreeMessage RECONFIG");
+					break;							
+					case STATIC_TREE:
+						logger.warn("Received TreeMessage STATIC_TREE, timestamp:{}",
+								treeM.getTimestamp());
+						this.tm.createStaticTree();
+						logger.warn("{}" , this.tm.toString());
+					break;
+					default:
+						logger.warn("TreeMessage NOOP.");
+						break;
+					}
+				} else {
 	            	logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
 	            }
 	        } else {

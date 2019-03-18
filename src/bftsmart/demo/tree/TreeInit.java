@@ -101,19 +101,7 @@ public class TreeInit {
 			
 			byte[] reply = proxy.invoke(TOMUtil.getBytes(this.treeMessage), TOMMessageType.TREE_INIT);
 			
-			//TOMMessage TomAnswer = TOMMessage.bytesToMessage(reply);
-			
 			System.out.println("Reply: " + reply);
-			
-			/*try {
-				int answer = new DataInputStream(new ByteArrayInputStream(TomAnswer.getContent())).readInt();
-				System.out.println("Replica answer: " + answer);
-				
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}*/
-			
 			proxy.close();
 		}
 

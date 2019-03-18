@@ -165,7 +165,8 @@ public class ServerConnection {
      * Used to send packets to the remote server.
      */
     public final void send(byte[] data, boolean useMAC) throws InterruptedException {
-        if (useSenderThread) {
+    	//logger.debug("MSG RECEIVED AT SEND METHOD.....");
+    	if (useSenderThread) {
             //only enqueue messages if there queue is not full
             if (!useMAC) {
                 logger.debug("Not sending defaultMAC " + System.identityHashCode(data));
@@ -175,6 +176,7 @@ public class ServerConnection {
             if (!outQueue.offer(data)) {
                 logger.debug("Out queue for " + remoteId + " full (message discarded).");
             }
+           
         } else {
             sendLock.lock();
             sendBytes(data, useMAC);
@@ -208,7 +210,6 @@ public class ServerConnection {
                     }
 
                     socketOutStream.write(data);
-
                     return;
                 } catch (IOException ex) {
                     closeSocket();
@@ -446,7 +447,9 @@ public class ServerConnection {
             while (doWork) {
                 //get a message to be sent
                 try {
-                    data = outQueue.poll(POOL_TIME, TimeUnit.MILLISECONDS);
+                    //data = outQueue.poll(POOL_TIME, TimeUnit.MILLISECONDS);
+                    data = outQueue.take();
+                    
                 } catch (InterruptedException ex) {
                 }
 
