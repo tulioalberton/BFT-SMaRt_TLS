@@ -331,7 +331,7 @@ public class ServerConnectionSSLTLS {
 			while (doWork) {
 				// get a message to be sent
 				try {
-					data = outQueue.poll(POOL_TIME, TimeUnit.MILLISECONDS);
+					data = outQueue.take();
 				} catch (InterruptedException ex) {
 				}
 
@@ -425,11 +425,11 @@ public class ServerConnectionSSLTLS {
 
 		@Override
 		public void run() {
-			byte[] receivedMac = null;
+		/*	byte[] receivedMac = null;
 			try {
 				receivedMac = new byte[TOMUtil.getMacFactory().getMacLength()];
 			} catch (NoSuchAlgorithmException ex) {
-			}
+			}*/
 
 			while (doWork) {
 				if (socketSSL != null && socketInStream != null) {

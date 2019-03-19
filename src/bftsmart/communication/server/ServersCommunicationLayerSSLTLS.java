@@ -183,6 +183,8 @@ public class ServersCommunicationLayerSSLTLS extends Thread {
 		String[] ciphers = serverSocketFactory.getSupportedCipherSuites();
 		for (int i = 0; i < ciphers.length; i++) {
 			logger.trace("Supported Cipher: {} ", ciphers[i]);
+
+			System.out.println("Supported Cipher: {} "+ ciphers[i]);
 		}
 
 		//serverSocketSSLTLS.setPerformancePreferences(0, 2, 1);
