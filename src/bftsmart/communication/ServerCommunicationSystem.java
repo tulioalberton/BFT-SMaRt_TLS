@@ -26,9 +26,9 @@ import bftsmart.communication.client.CommunicationSystemServerSide;
 import bftsmart.communication.client.CommunicationSystemServerSideFactory;
 import bftsmart.communication.client.RequestReceiver;
 import bftsmart.communication.server.ServersCommunicationLayer;
-import bftsmart.communication.server.ServersCommunicationLayerSSLTLS;
+import bftsmart.communication.server.ServersCommunicationLayer;
 import bftsmart.consensus.roles.Acceptor;
-import bftsmart.consensus.roles.AcceptorSSLTLS;
+import bftsmart.consensus.roles.Acceptor;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.TOMLayer;
@@ -48,11 +48,8 @@ public class ServerCommunicationSystem extends Thread {
 	public final long MESSAGE_WAIT_TIME = 100;
 	private LinkedBlockingQueue<SystemMessage> inQueue = null;// new LinkedBlockingQueue<SystemMessage>(IN_QUEUE_SIZE);
 	protected MessageHandler messageHandler;
-	protected MessageHandlerSSLTLS messageHandlerSSLTLS;
-	
+
 	private ServersCommunicationLayer serversConn;
-	private ServersCommunicationLayerSSLTLS serversConnSSLTLS;
-	private ConnType connType;
 
 	private CommunicationSystemServerSide clientsConn;
 	private ServerViewController controller;
@@ -66,34 +63,21 @@ public class ServerCommunicationSystem extends Thread {
 		this.controller = controller;
 		inQueue = new LinkedBlockingQueue<SystemMessage>(controller.getStaticConf().getInQueueSize());
 
-		if(this.controller.getStaticConf().isSSLTLSEnabled()){
-			serversConnSSLTLS = new ServersCommunicationLayerSSLTLS(controller, inQueue, replica);
-			messageHandlerSSLTLS = new MessageHandlerSSLTLS();
-			connType = ConnType.SSL_TLS;
-		} else {
-			serversConn = new ServersCommunicationLayer(controller, inQueue, replica);
-			messageHandler = new MessageHandler();
-			connType = ConnType.No_SSL_TLS;
-		}
+		serversConn = new ServersCommunicationLayer(controller, inQueue, replica);
+		messageHandler = new MessageHandler();
 
 		// ******* EDUARDO BEGIN **************//
 		clientsConn = CommunicationSystemServerSideFactory.getCommunicationSystemServerSide(controller);
 		// ******* EDUARDO END **************//
 	}
-	
+
 	// ******* EDUARDO BEGIN **************//
 	public void joinViewReceived() {
-		if(connType.equals(ConnType.SSL_TLS))
-			serversConnSSLTLS.joinViewReceived();
-		else
-			serversConn.joinViewReceived();
+		serversConn.joinViewReceived();
 	}
 
 	public void updateServersConnections() {
-		if(connType.equals(ConnType.SSL_TLS))
-			this.serversConnSSLTLS.updateConnections();
-		else
-			this.serversConn.updateConnections();
+		this.serversConn.updateConnections();
 
 		if (clientsConn == null) {
 			clientsConn = CommunicationSystemServerSideFactory.getCommunicationSystemServerSide(controller);
@@ -102,27 +86,17 @@ public class ServerCommunicationSystem extends Thread {
 	}
 
 	// ******* EDUARDO END **************//
-	
+
 	public void setAcceptor(Acceptor acceptor) {
 		messageHandler.setAcceptor(acceptor);
 	}
+
 	public void setTreeManager(TreeManager tm) {
 		messageHandler.setTreeManager(tm);
 	}
-	
-	public void setAcceptorSSLTLS(AcceptorSSLTLS acceptor) {
-		messageHandlerSSLTLS.setAcceptorSSLTLS(acceptor);
-	}
-	
-	public void setTreeManagerSSLTLS(TreeManager tm) {
-		messageHandlerSSLTLS.setTreeManager(tm);
-	}
-	
+
 	public void setTOMLayer(TOMLayer tomLayer) {
-		if(connType.equals(ConnType.SSL_TLS))
-			messageHandlerSSLTLS.setTOMLayer(tomLayer);
-		else
-			messageHandler.setTOMLayer(tomLayer);
+		messageHandler.setTOMLayer(tomLayer);
 	}
 
 	public void setRequestReceiver(RequestReceiver requestReceiver) {
@@ -145,29 +119,22 @@ public class ServerCommunicationSystem extends Thread {
 					logger.debug("After " + count + " messages, inQueue size=" + inQueue.size());
 				}
 
-				//SystemMessage sm = inQueue.poll(MESSAGE_WAIT_TIME, TimeUnit.MILLISECONDS);
+				// SystemMessage sm = inQueue.poll(MESSAGE_WAIT_TIME, TimeUnit.MILLISECONDS);
 				SystemMessage sm = inQueue.take();
-				
+
 				if (sm != null) {
-					if(sm instanceof TreeMessage) {
+					if (sm instanceof TreeMessage) {
 						TreeMessage tm = (TreeMessage) sm;
-						logger.debug("<-- receiving TreeMessage: " + tm.getTreeOperationType());
+						logger.debug("<-- received TreeMessage: " + tm.getTreeOperationType());
+					} else {
+						logger.trace("<-- received: " + sm);
 					}
-					else {
-						logger.trace("<-- receiving: " + sm);
-					}
-					
-					if(connType.equals(ConnType.SSL_TLS))
-						messageHandlerSSLTLS.processData(sm);
-					else
-						messageHandler.processData(sm);
+
+					messageHandler.processData(sm);
 					count++;
 				} else {
-					logger.debug("<------- verifying ---------- ");
-					if(connType.equals(ConnType.SSL_TLS))
-						messageHandlerSSLTLS.verifyPending();
-					else
-						messageHandler.verifyPending();
+					logger.debug("<-- verifying. ");
+					messageHandler.verifyPending();
 				}
 			} catch (InterruptedException e) {
 
@@ -182,32 +149,23 @@ public class ServerCommunicationSystem extends Thread {
 	 * Send a message to target processes. If the message is an instance of
 	 * TOMMessage, it is sent to the clients, otherwise it is set to the servers.
 	 *
-	 * @param targets
-	 *            the target receivers of the message
-	 * @param sm
-	 *            the message to be sent
+	 * @param targets the target receivers of the message
+	 * @param sm      the message to be sent
 	 */
 	public void send(int[] targets, SystemMessage sm) {
-		
+
 		if (sm instanceof TOMMessage) {
 			clientsConn.send(targets, (TOMMessage) sm, false);
 		} else {
-			
-			logger.trace("--> sending message from: {} -> {}" , sm.getSender(), targets);
-			
-			if(connType.equals(ConnType.SSL_TLS))
-				serversConnSSLTLS.send(targets, sm);
-			else
-				serversConn.send(targets, sm, true);
+
+			logger.trace("--> sending message from: {} -> {}", sm.getSender(), targets);
+
+			serversConn.send(targets, sm);
 		}
 	}
 
 	public ServersCommunicationLayer getServersConn() {
 		return serversConn;
-	}
-
-	public ServersCommunicationLayerSSLTLS getServersConnSSLTLS() {
-		return serversConnSSLTLS;
 	}
 
 	public CommunicationSystemServerSide getClientsConn() {
@@ -225,34 +183,16 @@ public class ServerCommunicationSystem extends Thread {
 
 		this.doWork = false;
 		clientsConn.shutdown();
-		if(connType.equals(ConnType.SSL_TLS))
-			serversConnSSLTLS.shutdown();
-		else
-			serversConn.shutdown();
+		serversConn.shutdown();
 	}
 
 	public SecretKey getSecretKey(int id) {
-		if(connType.equals(ConnType.SSL_TLS))
-			return serversConnSSLTLS.getSecretKey(id);
-		else
-			return serversConn.getSecretKey(id);
-		
+		return serversConn.getSecretKey(id);
+
 	}
-	
-	/* Tulio Ribeiro*/
-	public enum ConnType{
-		SSL_TLS, // Using SSL/TLS.
-		No_SSL_TLS // Not Using SSL/TLS. 	
-	}
-	public ConnType getConnType() {
-		return connType;
-	}
-	
+
 	public TreeManager getTreeManager() {
-		if(connType.equals(ConnType.SSL_TLS))
-			return messageHandlerSSLTLS.getTreeManager();
-		else
-			return messageHandler.getTreeManager();
+		return messageHandler.getTreeManager();
 	}
 
 }

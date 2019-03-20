@@ -1,5 +1,5 @@
 /**
-Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags
+Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, Tulio Ribeiro and the authors indicated in the @author tags
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,22 +13,32 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+/**
+ * TODO
+ * Remove / clear readProof blocking queue in case of non decided consensus.
+ * Revert state when non decided consensus 
+ * */
+
 package bftsmart.consensus.roles;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
 import java.security.PrivateKey;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
-
-import javax.crypto.Mac;
-import javax.crypto.SecretKey;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,16 +52,17 @@ import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.core.ExecutionManager;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
-import bftsmart.tom.core.messages.TOMMessageType;
+import bftsmart.tom.util.BatchReader;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.messages.ForwardTree;
+import bftsmart.tree.messages.ForwardTree.Direction;
 
 /**
  * This class represents the acceptor role in the consensus protocol. This class
  * work together with the TOMLayer class in order to supply a atomic multicast
  * service.
  *
- * @author Alysson Bessani
+ * @author Alysson Bessani, modified by Tulio Ribeiro
  */
 public final class Acceptor {
 
@@ -63,8 +74,6 @@ public final class Acceptor {
 	private ServerCommunicationSystem communication; // Replicas comunication system
 	private TOMLayer tomLayer; // TOM layer
 	private ServerViewController controller;
-	// private Cipher cipher;
-	private Mac mac;
 
 	/**
 	 * Tulio Ribeiro
@@ -73,9 +82,15 @@ public final class Acceptor {
 	private BlockingQueue<ConsensusMessage> readProof;
 	private PrivateKey privKey;
 	private boolean hasProof;
-	private boolean hasReconf;
-	private String proofType;
 
+	//Disk
+	private BlockingQueue<HashMap<Integer, byte[]>> toPersistBatch;
+	private BlockingQueue<HashMap<Integer, Set<ConsensusMessage>>> toPersistProof;
+	private BlockingQueue<Integer> saved;
+	private Boolean isPersistent = false;
+	private String storeDataDir;
+	
+	
 	/**
 	 * Creates a new instance of Acceptor.
 	 * 
@@ -85,29 +100,38 @@ public final class Acceptor {
 	 *            Message factory for PaW messages
 	 * @param controller
 	 */
-	public Acceptor(ServerCommunicationSystem communication, MessageFactory factory, ServerViewController controller) {
+	public Acceptor(ServerCommunicationSystem communication, MessageFactory factory,
+			ServerViewController controller) {
 		this.communication = communication;
 		this.me = controller.getStaticConf().getProcessId();
 		this.factory = factory;
 		this.controller = controller;
 
 		/* Tulio Ribeiro */
-		this.hasProof  = false;
-		this.hasReconf = false;
+		this.hasProof = false;
 		this.privKey = controller.getStaticConf().getPrivateKey();
 		this.insertProof = new LinkedBlockingDeque<>();
 		this.readProof = new LinkedBlockingDeque<>();
-		InsertProofThread ipt = new InsertProofThread(this.insertProof, this.controller);
+		InsertProofThread ipt = new InsertProofThread(this.insertProof);
 		new Thread(ipt).start();
-		this.proofType = controller.getStaticConf().getProofType();
-
-		try {
-			this.mac = TOMUtil.getMacFactory();
-			logger.debug("Setting MAC with TOMUtil.getMacFactory(). ReplicaId: {}", me);
-		} catch (NoSuchAlgorithmException /* | NoSuchPaddingException */ ex) {
-			logger.error("Failed to get MAC engine", ex);
+		
+		// Deal with disk
+		this.saved = new LinkedBlockingDeque<>();
+		this.toPersistBatch = new LinkedBlockingDeque<>();
+		this.toPersistProof = new LinkedBlockingDeque<>();
+		this.storeDataDir = controller.getStaticConf().getStoreDataDir() + "/replica_"+this.me;
+		this.isPersistent = controller.getStaticConf().isPersistent();
+		
+		SaveBatchToDisk dwd = new SaveBatchToDisk(this.toPersistBatch);
+		SaveProofToDisk spd = new SaveProofToDisk(this.toPersistProof);
+		if(this.isPersistent) {
+			File f = new File(this.storeDataDir);
+			f.mkdirs();
+			
+			new Thread(dwd).start();	
+			new Thread(spd).start();			
 		}
-
+		
 	}
 
 	public MessageFactory getFactory() {
@@ -146,8 +170,10 @@ public final class Acceptor {
 		if (executionManager.checkLimits(msg)) {
 			logger.debug("Processing paxos msg with id " + msg.getNumber());
 			processMessage(msg);
-		} else {
-			logger.debug("Out of context msg with id " + msg.getNumber());
+		} else {			
+			logger.debug("Out of context msg with id:{}, Msg:{} " 
+					,msg.getNumber(),
+					msg);
 			tomLayer.processOutOfContext();
 		}
 	}
@@ -161,34 +187,28 @@ public final class Acceptor {
 	 */
 	public final void processMessage(ConsensusMessage msg) {
 		Consensus consensus = executionManager.getConsensus(msg.getNumber());
-
+		
 		consensus.lock.lock();
 		Epoch epoch = consensus.getEpoch(msg.getEpoch(), controller);
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
 			
+			if(communication.getTreeManager().getFinish()) {
 			//we will pass all messages through the spanning-tree.
-			ForwardTree fwdTree = new ForwardTree(msg.getSender(), msg);
-			communication.getTreeManager().forwardToChildren(fwdTree);
+				ForwardTree fwdTree = new ForwardTree(me, msg, Direction.DOWN);			
+				communication.getTreeManager().forwardToChildren(fwdTree);
+			}
 			
-			proposeReceived(epoch, msg);
+			proposeReceived(epoch, msg);			
 		}
 			break;
 		case MessageFactory.WRITE: {
-			/*
-			 * logger.trace("Epoch on (RECEIVED WRITE): {}", epoch.toString());
-			 * logger.debug("Size of Consensus Message (WRITE), before process it. Size:{}."
-			 * , sizeCM(msg));
-			 */
+			
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
 		case MessageFactory.ACCEPT: {
-			/*
-			 * logger.trace("Epoch on (RECEIVED ACCEPT): {}", epoch.toString()); logger.
-			 * trace("Size of Consensus Message (ACCEPT), before process it. Size:{}.",
-			 * sizeCM(msg));
-			 */
+			
 			acceptReceived(epoch, msg);
 		}
 		}
@@ -206,9 +226,10 @@ public final class Acceptor {
 		int cid = epoch.getConsensus().getId();
 		int ts = epoch.getConsensus().getEts();
 		int ets = executionManager.getConsensus(msg.getNumber()).getEts();
-		logger.debug("PROPOSE for consensus " + cid);
+		logger.debug("PROPOSE received from:{}, for consensus cId:{}, I am:{}", msg.getSender(), cid, me);
 		if (msg.getSender() == executionManager.getCurrentLeader() // Is the replica the leader?
 				&& epoch.getTimestamp() == 0 && ts == ets && ets == 0) { // Is all this in epoch 0?
+			
 			executePropose(epoch, msg.getValue());
 		} else {
 			logger.debug("Propose received is not from the expected leader");
@@ -226,7 +247,6 @@ public final class Acceptor {
 	private void executePropose(Epoch epoch, byte[] value) {
 		int cid = epoch.getConsensus().getId();
 		logger.debug("Executing propose for cId:{}, Epoch Timestamp:{}", cid, epoch.getTimestamp());
-
 		long consensusStartTime = System.nanoTime();
 
 		if (epoch.propValue == null) { // only accept one propose per epoch
@@ -235,7 +255,7 @@ public final class Acceptor {
 
 			/*** LEADER CHANGE CODE ********/
 			epoch.getConsensus().addWritten(value);
-			logger.debug("I have written value " + Arrays.toString(epoch.propValueHash) + " in consensus instance "
+			logger.trace("I have written value " + Arrays.toString(epoch.propValueHash) + " in consensus instance "
 					+ cid + " with timestamp " + epoch.getConsensus().getEts());
 			/*****************************************/
 
@@ -246,6 +266,7 @@ public final class Acceptor {
 			epoch.deserializedPropValue = tomLayer.checkProposedValue(value, true);
 
 			if (epoch.deserializedPropValue != null && !epoch.isWriteSetted(me)) {
+				
 				if (epoch.getConsensus().getDecision().firstMessageProposed == null) {
 					epoch.getConsensus().getDecision().firstMessageProposed = epoch.deserializedPropValue[0];
 				}
@@ -253,26 +274,32 @@ public final class Acceptor {
 					epoch.getConsensus().getDecision().firstMessageProposed.consensusStartTime = consensusStartTime;
 
 				}
+
 				epoch.getConsensus().getDecision().firstMessageProposed.proposeReceivedTime = System.nanoTime();
 
 				if (controller.getStaticConf().isBFT()) {
-					logger.debug("Sending WRITE for " + cid);
-
 					epoch.setWrite(me, epoch.propValueHash);
 					epoch.getConsensus().getDecision().firstMessageProposed.writeSentTime = System.nanoTime();
+
+					if (this.isPersistent) {
+						HashMap<Integer, byte[]> map = new HashMap<>();
+						map.put(cid, value);
+						advanceBatchSaving(map);
+					}
+					
+					logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
 					communication.send(this.controller.getCurrentViewOtherAcceptors(),
 							factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));
 
-					logger.debug("WRITE sent for " + cid);
-
 					computeWrite(cid, epoch, epoch.propValueHash);
 
-					logger.debug("WRITE computed for " + cid);
+					logger.debug("WRITE computed for cId:{}, I am:{}", cid, me);
 
 				} else {
 					epoch.setAccept(me, epoch.propValueHash);
 					epoch.getConsensus().getDecision().firstMessageProposed.writeSentTime = System.nanoTime();
 					epoch.getConsensus().getDecision().firstMessageProposed.acceptSentTime = System.nanoTime();
+
 					/**** LEADER CHANGE CODE! ******/
 					logger.debug("[CFT Mode] Setting consensus " + cid + " QuorumWrite tiemstamp to "
 							+ epoch.getConsensus().getEts() + " and value " + Arrays.toString(epoch.propValueHash));
@@ -290,6 +317,11 @@ public final class Acceptor {
 																								// if the proposal is
 																								// garbage
 
+				if (this.isPersistent) {
+					HashMap<Integer, byte[]> map = new HashMap<>();
+					map.put(cid, value);
+					advanceBatchSaving(map);
+				}
 				tomLayer.getSynchronizer().triggerTimeout(new LinkedList<>());
 			}
 		}
@@ -305,10 +337,10 @@ public final class Acceptor {
 	 * @param value
 	 *            Value sent in the message
 	 */
-	private void writeReceived(Epoch epoch, int a, byte[] value) {
+	private void writeReceived(Epoch epoch, int sender, byte[] value) {
 		int cid = epoch.getConsensus().getId();
-		logger.debug("WRITE from " + a + " for consensus " + cid);
-		epoch.setWrite(a, value);
+		logger.debug("WRITE received from:{}, for consensus cId:{}", sender, cid);
+		epoch.setWrite(sender, value);
 
 		computeWrite(cid, epoch, value);
 	}
@@ -328,12 +360,12 @@ public final class Acceptor {
 		int writeAccepted = epoch.countWrite(value);
 
 		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{},", writeAccepted, cid, epoch.getTimestamp());
-
+		
 		if (writeAccepted > controller.getQuorum() && Arrays.equals(value, epoch.propValueHash)) {
 
 			if (!epoch.isAcceptSetted(me)) {
 
-				logger.debug("Sending ACCEPT for " + cid);
+				logger.debug("Sending ACCEPT message, cId:{}, I am:{}", cid, me);
 
 				/**** LEADER CHANGE CODE! ******/
 				logger.debug("Setting consensus " + cid + " QuorumWrite tiemstamp to " + epoch.getConsensus().getEts()
@@ -344,140 +376,94 @@ public final class Acceptor {
 				epoch.setAccept(me, value);
 
 				if (epoch.getConsensus().getDecision().firstMessageProposed != null) {
+
 					epoch.getConsensus().getDecision().firstMessageProposed.acceptSentTime = System.nanoTime();
 				}
 
 				// insertProof(cm, epoch);
 				ConsensusMessage cm = null;
 				try {
-					if (this.hasProof) {
-						logger.debug("Waiting for readProof Blocking Queue... cID: {}", cid);
+					if(this.hasProof) {
+						logger.debug("Waiting for readProof Blocking Queue... cID: {}", cid );
 						cm = readProof.take();
-					} else {
-						// Deal with some case where the protocol does not execute from begin, as leader
-						// change.
+					}
+					else {
+						//Deal with some case where the protocol does not execute from begin, as leader change.
 						logger.info("Proof not done yes, leader change?, hasProof:{}", this.hasProof);
-						advanceInsertProof(cid, epoch.getTimestamp(), value, epoch.deserializedPropValue);
+						advanceInsertProof(cid, epoch.getTimestamp(), value);
 						cm = readProof.take();
 					}
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
 
-				int[] targets = this.controller.getCurrentViewOtherAcceptors();
-				communication.getServersConn().send(targets, cm, true);
-
+				if (this.isPersistent) {
+					try {
+						logger.trace("Waiting for saved Blocking Queue... cid: {}", cid );
+						int cId = saved.take();
+						logger.debug("Batch for cId: {} was safely persisted.", cId);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
+				
+				if(cm.authenticated)
+					logger.info("Sending Authenticated message...");
+				else 
+					logger.info("Sending NOT Authenticated message...");
+				
+				int[] targets = controller.getCurrentViewOtherAcceptors();
+				communication.getServersConn().send(targets, cm);
+				
+				//we will pass all messages through the spanning-tree.
+				//communication.getTreeManager().forwardToChildren(cm);
+				
+				
 				epoch.addToProof(cm);
 				computeAccept(cid, epoch, value);
+
 			}
-		} else if (!hasProof) {
-			advanceInsertProof(cid, epoch.getTimestamp(), value, epoch.deserializedPropValue);
-		}
+		}else if (!hasProof) {
+			advanceInsertProof(cid, epoch.getTimestamp(), value);
+		} 
 	}
 
 	/**
-	 * Advancing signature proof for Accept message. It is called by Synchornizer at
-	 * Leader Changes.
-	 * 
-	 * @param cid:
-	 *            consensus id
-	 * @param epoch:
-	 *            epoch
-	 * @param value:
-	 *            value sent in the message
+	 * Advancing batch disk saving.
+	 * TODO: problem when changing leader.     
+	 *  
+	 * @param cid: consensus id
+	 * @param epoch: epoch
+	 * @param value: value sent in the message
 	 */
-	public void advanceInsertProof(int cid, int epochTimestamp, byte[] value,  TOMMessage[] msgs) {
-
-		// check if consensus contains reconfiguration request
-		if (!proofType.equalsIgnoreCase("signatures")) {
-
-			for (TOMMessage msg : msgs) {
-				if (msg.getReqType() == TOMMessageType.RECONFIG && msg.getViewID() == controller.getCurrentViewId()) {
-					hasReconf = true;
-					break; // no need to continue, exit the loop
-				}
-			}
-		}
-
-		hasProof = true;
-		logger.debug("Advancing signature for ACCEPT message. cId:{}", cid);
-		ConsensusMessage cm = factory.createAccept(cid, epochTimestamp, value);
+	
+	public void advanceBatchSaving(HashMap<Integer, byte[]> map) {
+		logger.debug("Advancing batch disk saving, KeySet: {}", map.keySet().toString());
 		try {
-			insertProof.put(cm);
+			toPersistBatch.put(map);
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
 	}
-
 	/**
-	 * Create a cryptographic proof for a consensus message
-	 * 
-	 * This method modifies the consensus message passed as an argument, so that it
-	 * contains a cryptographic proof.
-	 * 
-	 * @param cm
-	 *            The consensus message to which the proof shall be set
-	 * @param epoch
-	 *            The epoch during in which the consensus message was created
+	 * Advancing signature proof for Accept message.
+	 * It is called by SynchornizerSSLTLS at Leader Changes. 
+	 * @param cid: consensus id
+	 * @param epoch: epoch
+	 * @param value: value sent in the message
 	 */
-	/*
-	 * private void insertProof(ConsensusMessage cm, Epoch epoch) {
-	 * ByteArrayOutputStream bOut = new ByteArrayOutputStream(248); try { new
-	 * ObjectOutputStream(bOut).writeObject(cm); } catch (IOException ex) {
-	 * logger.error("Failed to serialize consensus message",ex); }
-	 * 
-	 * byte[] data = bOut.toByteArray();
-	 * 
-	 * // check if consensus contains reconfiguration request TOMMessage[] msgs =
-	 * epoch.deserializedPropValue; boolean hasReconf = false;
-	 * 
-	 * for (TOMMessage msg : msgs) { if (msg.getReqType() == TOMMessageType.RECONFIG
-	 * && msg.getViewID() == controller.getCurrentViewId()) { hasReconf = true;
-	 * break; // no need to continue, exit the loop } }
-	 * 
-	 * //If this consensus contains a reconfiguration request, we need to use //
-	 * signatures (there might be replicas that will not be part of the next
-	 * //consensus instance, and so their MAC will be outdated and useless) if
-	 * (hasReconf) {
-	 * 
-	 * byte[] signature = TOMUtil.signMessage(privKey, data);
-	 * 
-	 * cm.setProof(signature);
-	 * 
-	 * } else { //... if not, we can use MAC vectors int[] processes =
-	 * this.controller.getCurrentViewAcceptors();
-	 * 
-	 * HashMap<Integer, byte[]> macVector = new HashMap<>();
-	 * 
-	 * //logger.
-	 * trace("Size of Consensus Message (ACCEPT), before insertProof. Size:{}, Macs:{}"
-	 * , sizeCM(cm), macVector.size());
-	 * 
-	 * for (int id : processes) {
-	 * 
-	 * try {
-	 * 
-	 * SecretKey key = null; do { key = communication.getSecretKey(id); if (key ==
-	 * null) { logger.warn("I don't have yet a secret key with " + id +
-	 * ". Retrying."); Thread.sleep(1000); }
-	 * 
-	 * } while (key == null); // JCS: This loop is to solve a race condition where a
-	 * // replica might have already been inserted in the view or // recovered after
-	 * a crash, but it still did not concluded // the Diffie-Hellman protocol. Not
-	 * an elegant solution, // but for now it will do this.mac.init(key);
-	 * macVector.put(id, this.mac.doFinal(data)); } catch (InterruptedException ex)
-	 * { logger.error("Interruption while sleeping", ex); } catch
-	 * (InvalidKeyException ex) {
-	 * 
-	 * logger.error("Failed to generate MAC vector", ex); } }
-	 * 
-	 * cm.setProof(macVector); //logger.
-	 * trace("Size of Consensus Message (ACCEPT), after insertProof. Size:{}, Macs:{}"
-	 * , sizeCM(cm), macVector.size()); }
-	 * 
-	 * }
-	 */
-
+	public void advanceInsertProof(int cid, int epochTimestamp, byte[] value) {
+			hasProof = true;
+			logger.debug("Advancing signature for ACCEPT message. cId:{}", cid);
+			ConsensusMessage cm = factory.createAccept(cid, epochTimestamp, value);
+			
+			try {
+				insertProof.put(cm);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+	}
+	
 	/**
 	 * Called when a ACCEPT message is received
 	 * 
@@ -492,7 +478,6 @@ public final class Acceptor {
 		int cid = epoch.getConsensus().getId();
 		epoch.setAccept(msg.getSender(), msg.getValue());
 		epoch.addToProof(msg);
-		logger.debug("ACCEPT received from replica:{}, for consensus cId:{}.", msg.getSender(), cid);
 
 		computeAccept(cid, epoch, msg.getValue());
 	}
@@ -512,7 +497,16 @@ public final class Acceptor {
 		if (epoch.countAccept(value) > controller.getQuorum() && !epoch.getConsensus().isDecided()) {
 			logger.debug("Deciding consensus " + cid);
 			hasProof = false;
-			hasReconf = false;
+			
+			if (this.isPersistent) {
+				try {
+					HashMap<Integer, Set<ConsensusMessage>> proof = new HashMap<>();
+					proof.put(cid, epoch.getProof());
+					this.toPersistProof.put(proof);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
 			decide(epoch);
 		}
 	}
@@ -530,20 +524,28 @@ public final class Acceptor {
 		epoch.getConsensus().decided(epoch, true);
 	}
 
+	/*
+	 * private int sizeCM(ConsensusMessage cm) { ByteArrayOutputStream bOut2 = new
+	 * ByteArrayOutputStream(248); try { new
+	 * ObjectOutputStream(bOut2).writeObject(cm); } catch (IOException ex) {
+	 * logger.error("Failed to serialize consensus message", ex); } byte[] data2 =
+	 * bOut2.toByteArray();
+	 * 
+	 * return data2.length; }
+	 */
+
 	/**
 	 * Create a cryptographic proof for a consensus message Thread used to advance
-	 * the signature process.
+	 * the signature process. 
 	 * 
 	 * The proof is inserted into a Blocking Queue read by ComputeWrite.
 	 */
-
+	 
 	private class InsertProofThread implements Runnable {
 		private BlockingQueue<ConsensusMessage> insertProof;
-
-		public InsertProofThread(BlockingQueue<ConsensusMessage> queue, ServerViewController controller) {
+		public InsertProofThread(BlockingQueue<ConsensusMessage> queue) {
 			insertProof = queue;
 		}
-
 		@Override
 		public void run() {
 			logger.info("Advanced proof thread running. ThreadId: {}", Thread.currentThread().getId());
@@ -551,6 +553,8 @@ public final class Acceptor {
 				try {
 					ConsensusMessage cm = insertProof.take();
 
+					cm.authenticated = true;
+					
 					ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
 					try {
 						new ObjectOutputStream(bOut).writeObject(cm);
@@ -559,58 +563,9 @@ public final class Acceptor {
 					}
 					byte[] data = bOut.toByteArray();
 
-					
-					if(hasReconf || proofType.equalsIgnoreCase("signatures")) { 
-						//If we have a reconfiguration, we need to sign.
-						//Sign the message. 
-						byte[] signature = TOMUtil.signMessage(privKey, data);
-						cm.setProof(signature);
-					}
-					else if(proofType.equalsIgnoreCase("macVector")){//... otherwise, we will use MAC vectors
-				            
-				            Mac mac = null;				            
-				            try {				            
-				                mac = TOMUtil.getMacFactory();				            
-				            } catch (NoSuchAlgorithmException ex) {
-				                logger.error("Failed to create MAC engine", ex);
-				                return;
-				            }
-				            
-				            int[] processes = controller.getCurrentViewAcceptors();
+					byte[] signature = TOMUtil.signMessage(privKey, data);
 
-				            HashMap<Integer, byte[]> macVector = new HashMap<>();
-
-				            for (int id : processes) {
-
-				                try {
-
-				                    SecretKey key = null;
-				                    do {
-				                        key = communication.getServersConn().getSecretKey(id);
-				                        if (key == null) {
-				                            logger.warn("I don't have yet a secret key with " + id + ". Retrying.");
-				                            Thread.sleep(1000);
-				                        }
-
-				                    } while (key == null);  // JCS: This loop is to solve a race condition where a
-				                                            // replica might have already been inserted in the view or
-				                                            // recovered after a crash, but it still did not concluded
-				                                            // the diffie helman protocol. Not an elegant solution,
-				                                            // but for now it will do
-				                    mac.init(key);
-				                    macVector.put(id, mac.doFinal(data));
-				                } catch (InterruptedException ex) {
-				                    
-				                    logger.error("Interruption while sleeping", ex);
-				                } catch (InvalidKeyException ex) {
-
-				                    logger.error("Failed to generate MAC vector", ex);
-				                }
-				            }
-
-				            cm.setProof(macVector);
-					}
-					
+					cm.setProof(signature);
 					readProof.put(cm);
 
 				} catch (InterruptedException e) {
@@ -620,15 +575,137 @@ public final class Acceptor {
 		}
 	}
 
-	/*
-	 * private int sizeCM(ConsensusMessage cm) { ByteArrayOutputStream bOut2 = new
-	 * ByteArrayOutputStream(248); try { new
-	 * ObjectOutputStream(bOut2).writeObject(cm); } catch (IOException ex) {
-	 * logger.error("Failed to serialize consensus message", ex); } byte[] data2 =
-	 * bOut2.toByteArray();
+	
+	/**
 	 * 
-	 * return data2.length;
-	 * 
-	 * }
 	 */
+	private class SaveBatchToDisk implements Runnable {
+		private BlockingQueue<HashMap<Integer, byte[]>> toPersistBatch;
+
+		public SaveBatchToDisk(BlockingQueue<HashMap<Integer, byte[]>> queue) {
+			toPersistBatch = queue;
+		}
+		@Override
+		public void run() {
+			logger.info("Save batch to disk thread running. ThreadId: {}", Thread.currentThread().getId());
+			RandomAccessFile raf = null;			
+
+			while (true) {
+				try {										
+					HashMap<Integer, byte[]> mapConsensus = toPersistBatch.take();					
+					Iterator<Integer> it = mapConsensus.keySet().iterator();
+					while (it.hasNext()) {
+						Integer cId = (Integer) it.next();
+						String consensusFile = storeDataDir + "/cId_"+cId;
+								
+						try {
+							raf = new RandomAccessFile(consensusFile, "rwd");
+							raf.write(mapConsensus.get(cId));
+							raf.close();
+							saved.put(cId);
+							//logger.info("Batch safely saved. cId:{}", cId);
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+
+						if (logger.isTraceEnabled()) {
+							// Informative code, read and show the saved batch.
+							logger.trace("READING BATCH FROM DISK, cId:{}", cId);
+							try {
+								byte[] data = Files.readAllBytes(new File(storeDataDir + "/cId_" + cId).toPath());
+								BatchReader batchReader = new BatchReader(data,
+										controller.getStaticConf().getUseSignatures());
+								TOMMessage[] requests = null;
+								requests = batchReader.deserialiseRequests(controller);
+								for (TOMMessage request : requests) {
+									logger.trace("Request, Sender:{}, Req Type:{}", request.getSender(),
+											request.getReqType());
+								}
+							} catch (FileNotFoundException e) {
+								e.printStackTrace();
+							} catch (IOException e) {
+								e.printStackTrace();
+							}
+						}
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	private class SaveProofToDisk implements Runnable {
+		private BlockingQueue<HashMap<Integer, Set<ConsensusMessage>>> toPersistProof;
+
+		public SaveProofToDisk(BlockingQueue<HashMap<Integer, Set<ConsensusMessage>>> queue) {
+			toPersistProof = queue;
+		}
+
+		@Override
+		public void run() {
+			logger.info("Save proof to disk thread running. ThreadId: {}", Thread.currentThread().getId());
+			
+			RandomAccessFile raf = null;
+			
+			while (true) {
+				try {
+					
+					HashMap<Integer, Set<ConsensusMessage>> mapProofs = toPersistProof.take();
+					
+					Iterator<Integer> it = mapProofs.keySet().iterator();
+					while (it.hasNext()) {
+						Integer cId = (Integer) it.next();
+						Set<ConsensusMessage> proofsToSave = mapProofs.get(cId);
+
+						String proofFile = storeDataDir + "/cId_" + cId + ".proof";
+
+						ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
+						try {
+							new ObjectOutputStream(bOut).writeObject(proofsToSave);
+						} catch (IOException ex) {
+							logger.error("Failed to serialize consensus message", ex);
+						}
+						byte[] epochProof = bOut.toByteArray();
+						
+						try {
+							raf = new RandomAccessFile(proofFile, "rwd");
+							raf.write(epochProof);
+							raf.close();
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+			
+						if (logger.isTraceEnabled()) {
+							// Informative code, read and show the saved proofs.
+							logger.trace("READING PROOF FROM DISK, cId:{}", cId);
+							try {
+								byte[] proofs = Files.readAllBytes(new File(proofFile).toPath());
+
+								Set<ConsensusMessage> proofsRead = (Set<ConsensusMessage>) (new ObjectInputStream(
+										new ByteArrayInputStream(proofs)).readObject());
+								Iterator<ConsensusMessage> itProof = proofsRead.iterator();
+								while (itProof.hasNext()) {
+									ConsensusMessage cm = (ConsensusMessage) itProof.next();
+									logger.trace("From file, cId:{}, Sender:{}", cm.getNumber(), cm.getSender());
+								}
+							} catch (FileNotFoundException e) {
+								e.printStackTrace();
+							} catch (ClassNotFoundException e) {
+								e.printStackTrace();
+							}catch (Exception e) {
+								e.printStackTrace();
+							}
+						}
+					}
+
+				} catch (InterruptedException  e) {
+					e.printStackTrace();
+				}
+				
+				
+				
+			}
+		}
+	}
 }

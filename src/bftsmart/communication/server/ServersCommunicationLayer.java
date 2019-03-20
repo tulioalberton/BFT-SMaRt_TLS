@@ -1,5 +1,5 @@
 /**
-Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, and the authors indicated in the @author tags
+Copyright (c) 2007-2013 Alysson Bessani, Eduardo Alchieri, Paulo Sousa, Tulio A. Ribeiro and the authors indicated in the @author tags
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,17 +17,28 @@ package bftsmart.communication.server;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.Security;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -35,6 +46,12 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLServerSocketFactory;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.TrustManagerFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,12 +61,30 @@ import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.messages.ForwardTree;
 import bftsmart.tree.messages.TreeMessage;
 
 /**
  *
  * @author alysson
  */
+
+/**
+ * Tulio Ribeiro.
+ * 
+ * Generate a KeyPair used by SSL/TLS connections. Note that keypass argument is
+ * equal to the variable SECRET.
+ * 
+ * The command generates the secret key.*/ 
+//##Elliptic Curve 
+  //$keytool -genkey -keyalg EC -alias bftsmartEC -keypass MySeCreT_2hMOygBwY -keystore ./ecKeyPair -dname "CN=BFT-SMaRT" 
+  //$keytool -importkeystore -srckeystore ./ecKeyPair -destkeystore ./ecKeyPair -deststoretype pkcs12
+
+//##RSA 
+  //$keytool -genkey -keyalg RSA -keysize 2048 -alias bftsmartRSA -keypass MySeCreT_2hMOygBwY -keystore ./RSA_KeyPair_2048.pkcs12 -dname "CN=BFT-SMaRT"
+  //$keytool -importkeystore -srckeystore ./RSA_KeyPair_2048.pkcs12 -destkeystore ./RSA_KeyPair_2048.pkcs12 -deststoretype pkcs12
+ 
+
 public class ServersCommunicationLayer extends Thread {
 
 	private Logger logger = LoggerFactory.getLogger(this.getClass());
@@ -57,37 +92,39 @@ public class ServersCommunicationLayer extends Thread {
 	private ServerViewController controller;
 	private LinkedBlockingQueue<SystemMessage> inQueue;
 	private HashMap<Integer, ServerConnection> connections = new HashMap<>();
-	private ServerSocket serverSocket;
 
 	private int me;
 	private boolean doWork = true;
 	private Lock connectionsLock = new ReentrantLock();
 	private ReentrantLock waitViewLock = new ReentrantLock();
-	// private Condition canConnect = waitViewLock.newCondition();
 	private List<PendingConnection> pendingConn = new LinkedList<PendingConnection>();
 	private ServiceReplica replica;
+
+	/**
+	 * Tulio A. Ribeiro
+	 * 
+	 * SSL / TLS
+	 */
+
+	private KeyManagerFactory kmf;
+	private KeyStore ks;
+	private TrustManagerFactory trustMgrFactory;
+	private SSLContext context;
+	private SSLServerSocketFactory serverSocketFactory;
+	private static final String SECRET = "MySeCreT_2hMOygBwY";
 	private SecretKey selfPwd;
-	private static final String PASSWORD = "commsyst";
+	private SSLServerSocket serverSocketSSLTLS;
+	private String ssltlsProtocolVersion;
 
 	public ServersCommunicationLayer(ServerViewController controller, LinkedBlockingQueue<SystemMessage> inQueue,
-			ServiceReplica replica) throws Exception {
+			ServiceReplica replica) throws KeyStoreException, NoSuchAlgorithmException, CertificateException,
+			IOException, UnrecoverableKeyException, KeyManagementException, InvalidKeySpecException {
 
 		this.controller = controller;
 		this.inQueue = inQueue;
 		this.me = controller.getStaticConf().getProcessId();
 		this.replica = replica;
-		
-
-		// Try connecting if a member of the current view. Otherwise, wait until the
-		// Join has been processed!
-		if (controller.isInCurrentView()) {
-			int[] initialV = controller.getCurrentViewAcceptors();
-			for (int i = 0; i < initialV.length; i++) {
-				if (initialV[i] != me) {
-					getConnection(initialV[i]);
-				}
-			}
-		}
+		this.ssltlsProtocolVersion = controller.getStaticConf().getSSLTLSProtocolVersion();
 
 		String myAddress;
 		String confAddress = controller.getStaticConf().getRemoteAddress(controller.getStaticConf().getProcessId())
@@ -108,32 +145,72 @@ public class ServersCommunicationLayer extends Thread {
 			// To solve that issue, we bind to the address supplied in config/hosts.config
 			// instead.
 			if (InetAddress.getLoopbackAddress().getHostAddress().equals(myAddress) && !myAddress.equals(confAddress)) {
-
 				myAddress = confAddress;
 			}
 		} else {
-
 			myAddress = controller.getStaticConf().getBindAddress();
 		}
 
 		int myPort = controller.getStaticConf().getServerToServerPort(controller.getStaticConf().getProcessId());
-		serverSocket = new ServerSocket(myPort, 100, InetAddress.getByName(myAddress));
-		serverSocket.setSoTimeout(20000);
-		serverSocket.setReuseAddress(true);
+
+		FileInputStream fis = null;
+		try {
+			fis = new FileInputStream("config/keysSSL_TLS/" + controller.getStaticConf().getSSLTLSKeyStore());
+			ks = KeyStore.getInstance(KeyStore.getDefaultType());
+			ks.load(fis, SECRET.toCharArray());
+		} finally {
+			if (fis != null) {
+				fis.close();
+			}
+		}
+
+		String algorithm = Security.getProperty("ssl.KeyManagerFactory.algorithm");
+		kmf = KeyManagerFactory.getInstance(algorithm);
+		kmf.init(ks, SECRET.toCharArray());
+
+		trustMgrFactory = TrustManagerFactory.getInstance(algorithm);
+		trustMgrFactory.init(ks);
+
+		context = SSLContext.getInstance(this.ssltlsProtocolVersion);
+		context.init(kmf.getKeyManagers(), trustMgrFactory.getTrustManagers(), new SecureRandom());
+
+		serverSocketFactory = context.getServerSocketFactory();
+		this.serverSocketSSLTLS = (SSLServerSocket) serverSocketFactory.createServerSocket(myPort, 100,
+				InetAddress.getByName(myAddress));
+
+		serverSocketSSLTLS.setEnabledCipherSuites(this.controller.getStaticConf().getEnabledCiphers());
+
+		String[] ciphers = serverSocketFactory.getSupportedCipherSuites();
+		for (int i = 0; i < ciphers.length; i++) {
+			logger.trace("Supported Cipher: {} ", ciphers[i]);
+		}
+
+		//serverSocketSSLTLS.setPerformancePreferences(0, 2, 1);
+		//serverSocketSSLTLS.setSoTimeout(connectionTimeoutMsec);
+		serverSocketSSLTLS.setEnableSessionCreation(true);
+		serverSocketSSLTLS.setReuseAddress(true);
+		serverSocketSSLTLS.setNeedClientAuth(true);
+		serverSocketSSLTLS.setWantClientAuth(true);
+		
 
 		SecretKeyFactory fac = TOMUtil.getSecretFactory();
-		PBEKeySpec spec = TOMUtil.generateKeySpec(PASSWORD.toCharArray());
+		PBEKeySpec spec = TOMUtil.generateKeySpec(SECRET.toCharArray());
 		selfPwd = fac.generateSecret(spec);
+
+		// Try connecting if a member of the current view. Otherwise, wait until the
+		// Join has been processed!
+		if (controller.isInCurrentView()) {
+			int[] initialV = controller.getCurrentViewAcceptors();
+			for (int i = 0; i < initialV.length; i++) {
+				if (initialV[i] != me) {
+					getConnection(initialV[i]);
+				}
+			}
+		}
 
 		start();
 
 	}
-
-	/*
-	 * public SecretKey getSecretKey(int id) { if (id ==
-	 * controller.getStaticConf().getProcessId()) return selfPwd; else return
-	 * connections.get(id).getSecretKey(); }
-	 */
 
 	// ******* EDUARDO BEGIN **************//
 	public void updateConnections() {
@@ -182,7 +259,8 @@ public class ServersCommunicationLayer extends Thread {
 	}
 	// ******* EDUARDO END **************//
 
-	public final void send(int[] targets, SystemMessage sm, boolean useMAC) {
+	public final void send(int[] targets, SystemMessage sm) {
+		
 		ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
 		try {
 			new ObjectOutputStream(bOut).writeObject(sm);
@@ -191,24 +269,35 @@ public class ServersCommunicationLayer extends Thread {
 		}
 
 		byte[] data = bOut.toByteArray();
-
-		for (int target : targets) {
+		 
+		Integer[] targetArray = Arrays.stream( targets ).boxed().toArray( Integer[]::new );
+		Collections.shuffle(Arrays.asList(targetArray), new Random());
+		
+		for (int target : targetArray) {
 			try {
 				if (target == me) {
 					sm.authenticated = true;
 					inQueue.put(sm);
+					logger.debug("Queueing (delivering) my own message, me:{}", target);
 				} else {
-					if(sm instanceof TreeMessage)
+					if(sm instanceof TreeMessage) {
 						logger.debug("Sending TreeMessage from:{} -> to:{}.", me,  target);
+						sm.authenticated = true;
+					}
 					else if (sm instanceof ConsensusMessage) {
 						ConsensusMessage cm = (ConsensusMessage) sm;
 						logger.debug("Sending ConsensusMessage type:{} "
 								+ "from:{} -> to:{}.", cm.getType(), me,  target);
+					}else if (sm instanceof ForwardTree) {
+						ForwardTree fwd = (ForwardTree) sm;
+						ConsensusMessage cm = fwd.getConsensusMessage();
+						logger.debug("Forwarding ForwardTree message Originator Sender:{}, "
+								+ "from:{} -> to:{}.", cm.getSender(), me,  target);
 					}
 					else 
 						logger.debug("Sending message from:{} -> to:{}.", me,  target);
 					
-					getConnection(target).send(data, useMAC);
+					getConnection(target).send(data);
 				}
 			} catch (InterruptedException ex) {
 				logger.error("Interruption while inserting message into inqueue", ex);
@@ -259,8 +348,8 @@ public class ServersCommunicationLayer extends Thread {
 		while (doWork) {
 			try {
 				// System.out.println("Waiting for connections.");
-				Socket newSocket = (Socket) serverSocket.accept();
-				ServersCommunicationLayer.setSocketOptions(newSocket);
+				SSLSocket newSocket = (SSLSocket) serverSocketSSLTLS.accept();
+				ServersCommunicationLayer.setSSLSocketOptions(newSocket);
 
 				int remoteId = new DataInputStream(newSocket.getInputStream()).readInt();
 
@@ -270,13 +359,13 @@ public class ServersCommunicationLayer extends Thread {
 					pendingConn.add(new PendingConnection(newSocket, remoteId));
 					waitViewLock.unlock();
 				} else {
-					System.out.println("Trying establish connection with replica: " + remoteId);
+					logger.debug("Trying establish connection with Replica: {}", remoteId);
 					establishConnection(newSocket, remoteId);
 				}
 				// ******* EDUARDO END **************//
 
 			} catch (SocketTimeoutException ex) {
-				logger.debug("Server socket timed out, retrying");
+				logger.trace("Server socket timed out, retrying");
 			} catch (javax.net.ssl.SSLHandshakeException sslex) {
 				sslex.printStackTrace();
 			} catch (IOException ex) {
@@ -285,7 +374,7 @@ public class ServersCommunicationLayer extends Thread {
 		}
 
 		try {
-			serverSocket.close();
+			serverSocketSSLTLS.close();
 		} catch (IOException ex) {
 			logger.error("Failed to close server socket", ex);
 		}
@@ -293,65 +382,37 @@ public class ServersCommunicationLayer extends Thread {
 		logger.info("ServerCommunicationLayer stopped.");
 	}
 
-	// ******* EDUARDO BEGIN **************//
-	/*
-	 * private void establishConnection(Socket newSocket, int remoteId) throws
-	 * IOException { if ((this.controller.getStaticConf().getTTPId() == remoteId) ||
-	 * this.controller.isCurrentViewMember(remoteId)) { connectionsLock.lock();
-	 * //System.out.println("Vai se conectar com: "+remoteId); if
-	 * (this.connections.get(remoteId) == null) { //This must never happen!!!
-	 * //first time that this connection is being established
-	 * //System.out.println("THIS DOES NOT HAPPEN....."+remoteId);
-	 * this.connections.put(remoteId, new ServerConnection(controller, newSocket,
-	 * remoteId, inQueue, replica)); } else { //reconnection
-	 * this.connections.get(remoteId).reconnect(newSocket); }
-	 * connectionsLock.unlock();
-	 * 
-	 * } else { //System.out.println("Closing connection of: "+remoteId);
-	 * newSocket.close(); } }
-	 */
-	// ******* EDUARDO END **************//
 
-	/*
-	 * public static void setSocketOptions(Socket socket) { try {
-	 * socket.setTcpNoDelay(true); } catch (SocketException ex) {
-	 * 
-	 * LoggerFactory.getLogger(ServersCommunicationLayer.class).
-	 * error("Failed to set TCPNODELAY", ex); } }
-	 */
+	private void establishConnection(SSLSocket newSocket, int remoteId) throws IOException {
 
-	   //******* EDUARDO BEGIN **************//
-    private void establishConnection(Socket newSocket, int remoteId) throws IOException {
-        if ((this.controller.getStaticConf().getTTPId() == remoteId) || this.controller.isCurrentViewMember(remoteId)) {
-            connectionsLock.lock();
-            //System.out.println("Vai se conectar com: "+remoteId);
-            if (this.connections.get(remoteId) == null) { //This must never happen!!!
-                //first time that this connection is being established
-                //System.out.println("THIS DOES NOT HAPPEN....."+remoteId);
-                this.connections.put(remoteId, new ServerConnection(controller, newSocket, remoteId, inQueue, replica));
-            } else {
-                //reconnection
-                this.connections.get(remoteId).reconnect(newSocket);
-            }
-            connectionsLock.unlock();
+		if ((this.controller.getStaticConf().getTTPId() == remoteId) || this.controller.isCurrentViewMember(remoteId)) {
+			connectionsLock.lock();
+			if (this.connections.get(remoteId) == null) { // This must never happen!!!
+				// first time that this connection is being established
+				// System.out.println("THIS DOES NOT HAPPEN....."+remoteId);
+				this.connections.put(remoteId,
+						new ServerConnection(controller, newSocket, remoteId, inQueue, replica));
+			} else {
+				// reconnection
+				logger.debug("ReConnecting with replica: {}", remoteId);
+				this.connections.get(remoteId).reconnect(newSocket);
+			}
+			connectionsLock.unlock();
 
-        } else {
-            //System.out.println("Closing connection of: "+remoteId);
-            newSocket.close();
-        }
-    }
-    //******* EDUARDO END **************//
-    
-  
-	public static void setSocketOptions(Socket socket) {
+		} else {
+			logger.debug("Closing connection with replica: {}", remoteId);
+			newSocket.close();
+		}
+	}
+
+	public static void setSSLSocketOptions(SSLSocket socket) {
 		try {
 			socket.setTcpNoDelay(true);
 		} catch (SocketException ex) {
-
 			LoggerFactory.getLogger(ServersCommunicationLayer.class).error("Failed to set TCPNODELAY", ex);
 		}
 	}
-	
+
 
 	@Override
 	public String toString() {
@@ -361,8 +422,6 @@ public class ServersCommunicationLayer extends Thread {
 
 		for (int i = 0; i < activeServers.length; i++) {
 
-			// for(int i=0; i<connections.length; i++) {
-			// if(connections[i] != null) {
 			if (me != activeServers[i]) {
 				str += ", connections[" + activeServers[i] + "]: outQueue=" + getConnection(activeServers[i]).outQueue;
 			}
@@ -371,25 +430,22 @@ public class ServersCommunicationLayer extends Thread {
 		return str;
 	}
 
-	// ******* EDUARDO BEGIN: List entry that stores pending connections,
-	// as a server may accept connections only after learning the current view,
-	// i.e., after receiving the response to the join*************//
-	// This is for avoiding that the server accepts connectsion from everywhere
+	// ******* Tulio BEGIN: same as above with SSL.
 	public class PendingConnection {
-		public Socket s;
+		public SSLSocket s;
 		public int remoteId;
 
-		public PendingConnection(Socket s, int remoteId) {
+		public PendingConnection(SSLSocket s, int remoteId) {
 			this.s = s;
 			this.remoteId = remoteId;
 		}
 	}
-	// ******* EDUARDO END **************//
 
+	// ******* Tulio END **************//
 	public SecretKey getSecretKey(int id) {
-		if (id == controller.getStaticConf().getProcessId())
+		if (id == controller.getStaticConf().getProcessId()) {
 			return selfPwd;
-		else
+		} else
 			return connections.get(id).getSecretKey();
 	}
 

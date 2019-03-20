@@ -28,7 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import bftsmart.communication.server.ServerConnection;
-import bftsmart.communication.server.ServerConnectionSSLTLS;
+import bftsmart.communication.server.ServerConnection;
 import bftsmart.reconfiguration.views.View;
 import bftsmart.tom.util.KeyLoader;
 
@@ -129,8 +129,8 @@ public class ViewManager {
     }
 
     //Tulio Ribeiro
-    private ServerConnectionSSLTLS getConnectionSSLTLS(int remoteId){
-    	return new ServerConnectionSSLTLS(controller, null, remoteId, null, null);
+    private ServerConnection getConnectionSSLTLS(int remoteId){
+    	return new ServerConnection(controller, null, remoteId, null, null);
     }
 
     public void sendResponse(Integer[] targets, VMMessage sm) {
@@ -148,10 +148,7 @@ public class ViewManager {
             //br.ufsc.das.tom.util.Logger.println("(ServersCommunicationLayer.send) Sending msg to replica "+i);
             try {
                 if (i.intValue() != id) {
-                	if(controller.getStaticConf().isSSLTLSEnabled())
-                		getConnectionSSLTLS(i.intValue()).send(data);
-                	else
-                		getConnection(i.intValue()).send(data, true);
+                		getConnection(i.intValue()).send(data);
                 }
             } catch (InterruptedException ex) {
                // ex.printStackTrace();

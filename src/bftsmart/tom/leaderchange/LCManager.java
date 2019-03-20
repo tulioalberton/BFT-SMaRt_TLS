@@ -77,7 +77,6 @@ public class LCManager {
     
     private int currentLeader;
     //private Cipher cipher;
-    private Mac mac;
     
     /**
      * Constructor
@@ -97,12 +96,6 @@ public class LCManager {
 
         this.SVController = SVController;
         this.md = md;
-
-        try {
-            this.mac = TOMUtil.getMacFactory();
-        } catch (NoSuchAlgorithmException /*| NoSuchPaddingException*/ ex) {
-            logger.error("Could not instantiate MAC algorithm",ex);
-        }
 
     }
     
@@ -836,32 +829,7 @@ public class LCManager {
 
             byte[] data = bOut.toByteArray();
 
-            if (consMsg.getProof() instanceof HashMap) { // Certificate is made of MAC vector
-                
-                logger.debug("Proof made of MAC vector");
-            
-                HashMap<Integer, byte[]> macVector = (HashMap<Integer, byte[]>) consMsg.getProof();
-                               
-                byte[] recvMAC = macVector.get(myId);
-
-                byte[] myMAC = null;
-                                
-                secretKey = tomLayer.getCommunication().getServersConn().getSecretKey(consMsg.getSender());
-                try {
-                    this.mac.init(secretKey);                   
-                   myMAC = this.mac.doFinal(data);
-                } catch (InvalidKeyException ex) {
-                    logger.error("Could not compute MAC",ex);
-                }
-            
-                if (recvMAC != null && myMAC != null && Arrays.equals(recvMAC, myMAC) &&
-                        Arrays.equals(consMsg.getValue(), hashedValue) &&
-                        consMsg.getNumber() == cDec.getCID() && !alreadyCounted.contains(consMsg.getSender())) {
-                
-                    alreadyCounted.add(consMsg.getSender());
-                    countValid++;
-                }
-            } else if (consMsg.getProof() instanceof byte[]) { // certificate is made of signatures
+            if (consMsg.getProof() instanceof byte[]) { // certificate is made of signatures
                 
                 logger.debug("Proof made of Signatures");
                 pubKey = SVController.getStaticConf().getPublicKey(consMsg.getSender());

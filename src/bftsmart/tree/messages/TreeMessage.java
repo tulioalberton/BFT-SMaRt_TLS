@@ -113,5 +113,9 @@ public class TreeMessage extends SystemMessage {
 		return this.treeOperation;
 	}
 
+	@Override
+	public String toString() {
+		return "";
+	}
 	
 }

@@ -16,11 +16,7 @@
  */
 package bftsmart.tom;
 
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
-import java.security.Signature;
-import java.security.SignatureException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.Condition;
@@ -30,10 +26,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import bftsmart.communication.ServerCommunicationSystem;
-import bftsmart.communication.ServerCommunicationSystem.ConnType;
 import bftsmart.consensus.messages.MessageFactory;
 import bftsmart.consensus.roles.Acceptor;
-import bftsmart.consensus.roles.AcceptorSSLTLS;
 import bftsmart.consensus.roles.Proposer;
 import bftsmart.reconfiguration.ReconfigureReply;
 import bftsmart.reconfiguration.ServerViewController;
@@ -55,8 +49,6 @@ import bftsmart.tom.util.KeyLoader;
 import bftsmart.tom.util.ShutdownHookThread;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.TreeManager;
-import bftsmart.tree.messages.TreeMessage;
-import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
 /**
  * This class receives messages from DeliveryThread and manages the execution
@@ -87,8 +79,6 @@ public class ServiceReplica {
 	private Replier replier = null;
 	private RequestVerifier verifier = null;
 
-	
-	
 	/**
 	 * Constructor
 	 *
@@ -391,25 +381,23 @@ public class ServiceReplica {
 							SVController.enqueueUpdate(request);
 							break;
 						case TREE_INIT:
-							logger.info("Received a TREE_INIT message, "
-									 + "from clientId: {}", request.getSender());
-							
+							logger.info("Received a TREE_INIT message, " + "from clientId: {}", request.getSender());
+
 							/**
-							 * To create a static tree version, for test only purpose.
-							 * There are two ways, call the treatMessages(msg) with a TreeOperationType.STATIC_TREE.
-							 * or, the easy way, call createStaticTree() directly. 
+							 * To create a static tree version, for test only purpose. There are two ways,
+							 * call the treatMessages(msg) with a TreeOperationType.STATIC_TREE. or, the
+							 * easy way, call createStaticTree() directly.
 							 * 
 							 */
 							cs.getTreeManager().createStaticTree();
-							
+
 							/**
 							 * To initialize the spanning-tree protocol
 							 */
 							//cs.getTreeManager().initProtocol();
-							
-							
+
 							/**
-							 * Generate the answer to client. Does not imply the tree creation... 
+							 * Generate the answer to client. Does not imply the tree creation...
 							 */
 							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
 									request.getReqType(), request.getSession(), request.getSequence(),
@@ -418,12 +406,12 @@ public class ServiceReplica {
 									request.seed, regencies[consensusCount], leaders[consensusCount],
 									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
 									false);
-							
+
 							request.reply = new TOMMessage(id, request.getSession(), request.getSequence(),
 									request.getOperationId(), "1".toString().getBytes(),
 									SVController.getCurrentViewId(), request.getReqType());
 							replier.manageReply(request, msgCtxTree);
-							logger.info("Reply for TreeMessage (TREE_INIT) delivered...");					
+							logger.info("Reply for TreeMessage (TREE_INIT) delivered...");
 
 							break;
 						default: // this code should never be executed
@@ -543,34 +531,19 @@ public class ServiceReplica {
 		MessageFactory messageFactory = new MessageFactory(id);
 
 		Acceptor acceptor = null;
-		AcceptorSSLTLS acceptorSSLTLS = null;
+		Acceptor acceptorSSLTLS = null;
 
-		if (cs.getConnType() == ConnType.SSL_TLS) {
-			acceptorSSLTLS = new AcceptorSSLTLS(cs, messageFactory, SVController);
-			cs.setAcceptorSSLTLS(acceptorSSLTLS);
-		} else {
-			acceptor = new Acceptor(cs, messageFactory, SVController);
-			cs.setAcceptor(acceptor);
-		}
+		acceptor = new Acceptor(cs, messageFactory, SVController);
+		cs.setAcceptor(acceptor);
 
 		Proposer proposer = new Proposer(cs, messageFactory, SVController);
 
 		ExecutionManager executionManager = null;
 
-		if (cs.getConnType() == ConnType.SSL_TLS)
-			executionManager = new ExecutionManager(SVController, acceptorSSLTLS, proposer, id);
-		else
-			executionManager = new ExecutionManager(SVController, acceptor, proposer, id);
+		executionManager = new ExecutionManager(SVController, acceptor, proposer, id);
+		acceptor.setExecutionManager(executionManager);
 
-		if (cs.getConnType() == ConnType.SSL_TLS)
-			acceptorSSLTLS.setExecutionManager(executionManager);
-		else
-			acceptor.setExecutionManager(executionManager);
-
-		if (cs.getConnType() == ConnType.SSL_TLS)
-			tomLayer = new TOMLayer(executionManager, this, recoverer, acceptorSSLTLS, cs, SVController, verifier);
-		else
-			tomLayer = new TOMLayer(executionManager, this, recoverer, acceptor, cs, SVController, verifier);
+		tomLayer = new TOMLayer(executionManager, this, recoverer, acceptor, cs, SVController, verifier);
 
 		executionManager.setTOMLayer(tomLayer);
 
@@ -579,10 +552,7 @@ public class ServiceReplica {
 		cs.setTOMLayer(tomLayer);
 		cs.setRequestReceiver(tomLayer);
 
-		if (cs.getConnType() == ConnType.SSL_TLS)
-			acceptorSSLTLS.setTOMLayer(tomLayer);
-		else
-			acceptor.setTOMLayer(tomLayer);
+		acceptor.setTOMLayer(tomLayer);
 
 		if (SVController.getStaticConf().isShutdownHookEnabled()) {
 			Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(tomLayer));
@@ -591,17 +561,9 @@ public class ServiceReplica {
 
 		tomLayer.start(); // start the layer execution
 		tomStackCreated = true;
-		
-		TreeManager tm = new TreeManager(
-				cs,
-				SVController,
-				executionManager.getCurrentLeader()
-				);
-		if (cs.getConnType() == ConnType.SSL_TLS) {
-			cs.setTreeManagerSSLTLS(tm);
-		}else {	
-			cs.setTreeManager(tm);
-		}
+
+		TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
+		cs.setTreeManager(tm);
 	}
 
 	/**

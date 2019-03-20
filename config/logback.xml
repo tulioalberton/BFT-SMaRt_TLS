@@ -54,6 +54,6 @@
 	<logger name="bftsmart.tom.core.ExecutionManager" level="DEBUG"></logger>
 	<logger name="bftsmart.communication.server.ServerConnection" level="DEBUG"></logger>
 	
-	<logger name="bftsmart.tree.TreeManager" level="DEBUG"></logger>
+	<logger name="bftsmart.tree.TreeManager" level="TRACE"></logger>
 	
 </configuration>

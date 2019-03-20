@@ -33,7 +33,7 @@ import bftsmart.consensus.Decision;
 import bftsmart.consensus.Consensus;
 import bftsmart.consensus.Epoch;
 import bftsmart.consensus.roles.Acceptor;
-import bftsmart.consensus.roles.AcceptorSSLTLS;
+import bftsmart.consensus.roles.Acceptor;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.statemanagement.StateManager;
 import bftsmart.tom.ServiceReplica;
@@ -68,7 +68,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
     //other components used by the TOMLayer (they are never changed)
     public ExecutionManager execManager; // Execution manager
     public Acceptor acceptor; // Acceptor role of the PaW algorithm
-    public AcceptorSSLTLS acceptorSSLTLS; // Acceptor role of the PaW algorithm
+    public Acceptor acceptorSSLTLS; // Acceptor role of the PaW algorithm
     private ServerCommunicationSystem communication; // Communication system between replicas
     private DeliveryThread dt; // Thread which delivers total ordered messages to the appication
     public StateManager stateManager = null; // object which deals with the state transfer protocol
@@ -115,9 +115,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
             
     private Synchronizer syncher;
     
-    /* Tulio Ribeiro*/ 
-    private SynchronizerSSLTLS syncherSSLTLS;
-    private Boolean isSSLTLSEnabled;
 
 
 	/**
@@ -153,7 +150,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
         for (int i = 0; i < targets.length; i++) {
             publicKey.put(targets[i], controller.getStaticConf().getPublicKey(targets[i]));
         }
-        this.isSSLTLSEnabled=false;
         
         // Use a many as the number of available cores. 
         //this.verifierExecutor = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
@@ -193,78 +189,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
         this.syncher = new Synchronizer(this); // create synchronizer
     }
     
-    /**
-     * Creates a new instance of TOMulticastLayer
-     *
-     * @param manager Execution manager
-     * @param receiver Object that receives requests from clients
-     * @param recoverer
-     * @param a Acceptor role of the PaW algorithm
-     * @param cs Communication system between replicas
-     * @param controller Reconfiguration Manager
-     * @param verifier
-     */
-    public TOMLayer(ExecutionManager manager,
-            ServiceReplica receiver,
-            Recoverable recoverer,
-            AcceptorSSLTLS acceptor,
-            ServerCommunicationSystem cs,
-            ServerViewController controller,
-            RequestVerifier verifier) {
-
-        super("TOM Layer");
-
-        this.execManager = manager;
-        this.acceptorSSLTLS = acceptor;
-        this.communication = cs;
-        this.controller = controller;
-        
-        /*Tulio Ribeiro*/
-        this.privateKey = this.controller.getStaticConf().getPrivateKey();
-        this.publicKey = new HashMap<>();         
-        int [] targets  = this.controller.getCurrentViewAcceptors();
-        for (int i = 0; i < targets.length; i++) {
-            publicKey.put(targets[i], controller.getStaticConf().getPublicKey(targets[i]));
-        }
-        this.isSSLTLSEnabled=true;
-        
-        // use a many as the number of cores available
-        //this.verifierExecutor = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
-        this.verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        
-        //do not create a timer manager if the timeout is 0
-        if (this.controller.getStaticConf().getRequestTimeout() == 0) {
-            this.requestsTimer = null;
-        } else {
-            this.requestsTimer = new RequestsTimer(this, communication, this.controller); // Create requests timers manager (a thread)
-        }
-
-        try {
-            this.md = TOMUtil.getHashEngine();
-        } catch (Exception e) {
-            logger.error("Failed to get message digest engine",e);
-        }
-
-        try {
-            this.engine = TOMUtil.getSigEngine();
-        } catch (Exception e) {
-            logger.error("Failed to get signature engine",e);
-        }
-
-        
-        this.dt = new DeliveryThread(this, receiver, recoverer, this.controller); // Create delivery thread
-        this.dt.start();
-        this.stateManager = recoverer.getStateManager();
-        stateManager.init(this, dt);
-        
-        this.verifier = (verifier != null) ? verifier : ((request) -> true); // By default, never validate requests 
-		
-        // I have a verifier, now create clients manager
-        this.clientsManager = new ClientsManager(this.controller, requestsTimer, this.verifier);
-
-        this.syncherSSLTLS = new SynchronizerSSLTLS(this); // create synchronizer
-    }
-
+   
 
     /**
      * Computes an hash for a TOM message
@@ -393,10 +318,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
         
         if (readOnly) {
             logger.debug("Received read-only TOMMessage from client " + msg.getSender() + " with sequence number " + msg.getSequence() + " for session " + msg.getSession());
-
-            if(isSSLTLSEnabled)
-            	dt.deliverUnordered(msg, syncherSSLTLS.getLCManager().getLastReg());
-            else
             	dt.deliverUnordered(msg, syncher.getLCManager().getLastReg());
             
         } else {
@@ -531,9 +452,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
      */
     public void decided(Decision dec) {
         
-        if(isSSLTLSEnabled)
-        	dec.setRegency(syncherSSLTLS.getLCManager().getLastReg());
-        else
         	dec.setRegency(syncher.getLCManager().getLastReg());
         
         dec.setLeader(execManager.getCurrentLeader());
@@ -666,9 +584,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
     public Synchronizer getSynchronizer() {
         return syncher;
     }
-    public SynchronizerSSLTLS getSynchronizerSSLTLS() {
-        return syncherSSLTLS;
-    }
     
     private void haveMessages() {
         messagesLock.lock();
@@ -695,11 +610,5 @@ public final class TOMLayer extends Thread implements RequestReceiver {
         if (this.communication != null) this.communication.shutdown();
  
     }
-    
-
-    /* Tulio Ribeiro*/
-    public Boolean getIsSSLTLSEnabled() {
-		return isSSLTLSEnabled;
-	}
 
 }

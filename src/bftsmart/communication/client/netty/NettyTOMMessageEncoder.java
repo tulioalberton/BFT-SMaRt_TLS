@@ -16,19 +16,16 @@ limitations under the License.
 package bftsmart.communication.client.netty;
 
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
-
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import javax.crypto.Mac;
-
-import bftsmart.tom.core.messages.TOMMessage;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import bftsmart.tom.core.messages.TOMMessage;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.MessageToByteEncoder;
 
 
 public class NettyTOMMessageEncoder extends MessageToByteEncoder<TOMMessage> {
@@ -38,22 +35,18 @@ public class NettyTOMMessageEncoder extends MessageToByteEncoder<TOMMessage> {
     private boolean isClient;
     private Map sessionTable;
     private ReentrantReadWriteLock rl;
-    private boolean useMAC;
 
     public NettyTOMMessageEncoder(boolean isClient, 
     								Map sessionTable, 
-    								ReentrantReadWriteLock rl, 
-    								boolean useMAC){
+    								ReentrantReadWriteLock rl){
         this.isClient = isClient;
         this.sessionTable = sessionTable;
         this.rl = rl;
-        this.useMAC = useMAC;
     }
 
     @Override
 	protected void encode(ChannelHandlerContext context, TOMMessage sm, ByteBuf buffer) throws Exception {
         byte[] msgData;
-        byte[] macData = null;
         byte[] signatureData = null;
 
         msgData = sm.serializedMessage;
@@ -62,16 +55,7 @@ public class NettyTOMMessageEncoder extends MessageToByteEncoder<TOMMessage> {
             signatureData = sm.serializedMessageSignature;            
         }
         
-        if (useMAC) {
-            macData = produceMAC(sm.destination, msgData, sm.getSender());
-            if(macData == null) {
-            	logger.warn("Uses MAC and the returned MAC is null. Won't write to channel");
-            	return;
-            }
-        }
-
         int dataLength = Integer.BYTES + msgData.length +
-        		                (useMAC ? macData.length + Integer.BYTES : 0) +
         		                Integer.BYTES + (signatureData != null ? signatureData.length : 0);
         
 
@@ -82,12 +66,6 @@ public class NettyTOMMessageEncoder extends MessageToByteEncoder<TOMMessage> {
         /* data to be sent */
         buffer.writeInt(msgData.length);
         buffer.writeBytes(msgData);
-        
-        /* MAC */
-        if (useMAC) {
-        	buffer.writeInt(macData.length);
-        	buffer.writeBytes(macData);
-        }
         
         /* signature */
         if (signatureData != null) {
@@ -101,14 +79,5 @@ public class NettyTOMMessageEncoder extends MessageToByteEncoder<TOMMessage> {
         context.flush();
     }
 
-    byte[] produceMAC(int id, byte[] data, int me) {
-        NettyClientServerSession session = (NettyClientServerSession)sessionTable.get(id);
-        if(session == null) {
-        	logger.warn("Session for client " + id + " is null");
-        	return null;
-        }
-        Mac macSend = session.getMacSend();
-        return macSend.doFinal(data);
-    }
 
 }

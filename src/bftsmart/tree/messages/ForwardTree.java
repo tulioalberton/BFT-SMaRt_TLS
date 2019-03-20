@@ -29,15 +29,20 @@ public class ForwardTree extends SystemMessage {
 
 	private byte[] signature; // signature
 	private ConsensusMessage cm;
+	public enum Direction {
+		UP, // Forward Message Up Tree 
+		DOWN// Forward Message Down Tree
+	}
+	private Direction direction;
 	/**
 	 * Constructors.
 	 */
-	public ForwardTree() {
-	}
+	public ForwardTree() {}
 
-	public ForwardTree(int from, ConsensusMessage cm) {
+	public ForwardTree(int from, ConsensusMessage cm, Direction direction) {
 		super(from);
 		this.cm = cm;
+		this.direction = direction;
 	}
 
 	/**
@@ -50,6 +55,8 @@ public class ForwardTree extends SystemMessage {
 		out.writeInt(signature.length);
 		out.write(signature);
 		out.writeObject(cm);
+		out.writeObject(direction);
+		
 		
 	}
 
@@ -61,6 +68,7 @@ public class ForwardTree extends SystemMessage {
 		this.signature = new byte[in.readInt()];
 		in.read(this.signature);
 		this.cm = (ConsensusMessage) in.readObject();
+		this.direction = (Direction) in.readObject();
 		
 	}
 
@@ -78,6 +86,9 @@ public class ForwardTree extends SystemMessage {
 
 	public ConsensusMessage getConsensusMessage() {
 		return this.cm;
+	}
+	public Direction getDirection () {
+		return this.direction;
 	}
 	
 	

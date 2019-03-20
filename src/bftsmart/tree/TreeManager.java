@@ -116,6 +116,8 @@ public class TreeManager {
 	
 	public synchronized void treatMessages(TreeMessage msg) {
 		
+		logger.debug("Received TreeMessage, "
+				+ "Type:{}, Sender:{}.", msg.getTreeOperationType(), msg.getSender());
 		if (!verifySignature(msg)) {
 			return;
 		}
@@ -210,8 +212,7 @@ public class TreeManager {
 				msg.toString().getBytes(), msg.getSignature())) {
 			logger.debug("Message was successfully verified.");
 			return true;
-		}else {
-			
+		}else {			
 			logger.warn("Signature verification NOT succeed.");
 			return false;
 		}
@@ -252,18 +253,17 @@ public class TreeManager {
 		} catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
 			e.printStackTrace();
 		}
-		
-		logger.info("ForwardTree message: fwdT.sender:{}, cm.sender:{}, cm.type:{}", 
-				msg.getSender(), cm.getSender(), cm.getType());		
+				
 		
 		Iterator<Integer> it = this.children.iterator();
 		while (it.hasNext()) {
 			Integer child = (Integer) it.next();
-			
+			logger.info("Forwarding Tree message: fwdT.from:{} -> to{}:, "
+					+ "cm.sender:{}, cm.type:{}", 
+					new Object[] {msg.getSender(), child, cm.getSender(), cm.getType()}
+					);	
 			commS.send(new int[] { child }, fwdTree);
-			
 		}
-		
 	}
 
 	public synchronized void createStaticTree() {
@@ -272,20 +272,20 @@ public class TreeManager {
 			case 0:
 				this.parent = 0;
 				this.children.add(1);
-				//this.children.add(2);
+				this.children.add(2);
 				break;
 			case 1:
 				this.parent = 0;
-				this.children.add(2);
-				//this.children.add(4);
+				this.children.add(3);
+				this.children.add(4);
 				break;
 			case 2:
-				this.parent = 1;
-				this.children.add(3);
-				//this.children.add(6);
+				this.parent = 0;
+				this.children.add(5);
+				this.children.add(6);
 				break;
 			case 3:
-				this.parent = 2;
+				this.parent = 1;
 				break;
 			case 4:
 				this.parent = 1;

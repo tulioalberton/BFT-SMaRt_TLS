@@ -42,7 +42,6 @@ public class TOMConfiguration extends Configuration {
     protected boolean shutdownHookEnabled;
     protected boolean useSenderThread;
     private int numNIOThreads;
-    private boolean useMACs;
     private boolean useSignatures;
     private boolean stateTransferEnabled;
     private int checkpointPeriod;
@@ -63,7 +62,6 @@ public class TOMConfiguration extends Configuration {
     private String bindAddress;
     
     /* Tulio Ribeiro*/
-    private Boolean ssltls;
     private String ssltlsProtocolVersion;
     private String keyStoreFile;
     private String [] enabledCiphers;
@@ -178,13 +176,6 @@ public class TOMConfiguration extends Configuration {
                 numNIOThreads = 2;
             } else {
                 numNIOThreads = Integer.parseInt(s);
-            }
-
-            s = (String) configs.remove("system.communication.useMACs");
-            if (s == null) {
-                useMACs = false;
-            } else {
-                useMACs = Boolean.parseBoolean(s);
             }
 
             s = (String) configs.remove("system.communication.useSignatures");
@@ -357,12 +348,6 @@ public class TOMConfiguration extends Configuration {
              *  #	enabledCiphers = new String[] {"TLS_RSA_WITH_NULL_SHA256", "TLS_ECDHE_ECDSA_WITH_NULL_SHA"};
              *  #	ssltlsProtocolVersion = "TLSv1.2";
              */
-            s = (String) configs.remove("system.ssltls");
-            if(s == null){
-                ssltls = true;
-            }else{
-                ssltls = (s.equalsIgnoreCase("true"))?true:false;
-			}
             
             s = (String) configs.remove("system.ssltls.key_store_file");
             if(s == null){
@@ -402,15 +387,6 @@ public class TOMConfiguration extends Configuration {
 				}
 			}
 			
-			if(ssltls && useMACs) {
-				System.out.println("----------------------------------------------------\n"
-						+ "   Incompatible configuration options.\n"
-						+ "   When using SSL/TLS, useMACs is without effect.\n"
-						+ "   Setting system.communication.useMACs = false\n"
-						+ "----------------------------------------------------");
-				useMACs = false;
-			}
-
 			//Persistence variables
 			s = (String) configs.remove("system.persistent");
             if(s == null){
@@ -526,13 +502,6 @@ public class TOMConfiguration extends Configuration {
     public boolean getUseSignatures() {
         return useSignatures;
     }
-
-    /**
-     * Indicates if MACs should be used true or not false to authenticate client-server and server-server messages
-     */
-    public boolean getUseMACs() {
-        return useMACs;
-    }
     
     /**
      * Indicates the checkpoint period used when fetching the state from the application
@@ -605,9 +574,6 @@ public class TOMConfiguration extends Configuration {
      * */
     public String getSSLTLSProtocolVersion() {
 		return ssltlsProtocolVersion;
-	}
-	public boolean isSSLTLSEnabled() {
-		return ssltls;
 	}
 	public String getSSLTLSKeyStore() {
 		return keyStoreFile; 

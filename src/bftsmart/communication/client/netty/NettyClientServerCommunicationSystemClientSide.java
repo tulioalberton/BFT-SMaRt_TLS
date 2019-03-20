@@ -536,9 +536,7 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 	public synchronized ChannelFuture connectToReplica(int replicaId, SecretKeyFactory fac)
 			throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException {
 
-		String str = this.clientId + ":" + replicaId;
-		PBEKeySpec spec = TOMUtil.generateKeySpec(str.toCharArray());
-		SecretKey authKey = fac.generateSecret(spec);
+		//String str = this.clientId + ":" + replicaId;
 
 		Bootstrap b = new Bootstrap();
 		b.group(workerGroup);
@@ -552,14 +550,7 @@ public class NettyClientServerCommunicationSystemClientSide extends SimpleChanne
 		ChannelFuture channelFuture = b.connect(controller.getRemoteAddress(replicaId));
 
 		// ******* EDUARDO BEGIN **************//
-		// creates MAC stuff
-		Mac macSend = TOMUtil.getMacFactory();
-		macSend.init(authKey);
-		Mac macReceive = TOMUtil.getMacFactory();
-		macReceive.init(authKey);
 		NettyClientServerSession ncss = new NettyClientServerSession(channelFuture.channel(), 
-																	macSend, 
-																	macReceive, 
 																	replicaId);
 		sessionClientToReplica.put(replicaId, ncss);
 		// ******* EDUARDO END **************//
