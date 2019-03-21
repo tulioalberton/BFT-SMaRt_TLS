@@ -22,11 +22,13 @@ import java.security.Signature;
 import java.security.SignatureException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Queue;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
@@ -41,7 +43,7 @@ import bftsmart.tree.messages.ForwardTree.Direction;
 import bftsmart.tree.messages.TreeMessage;
 import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
-public class TreeManager {
+public class MultiRootedSP {
 	
 	private Logger logger; 
 
@@ -51,39 +53,64 @@ public class TreeManager {
 
 	private int replicaId;
 	private int currentLeader = -1;
-	private int parent;
-	private List<Integer> children;
-	private Queue<Integer> unexplored;
 	private boolean finish = false;
-
+	
+	private HashMap<Integer, Set<Integer>> viewChildren;
+	private HashMap<Integer, Integer> viewParent;
+	private HashMap<Integer, Queue<Integer>> viewUnexplored;
+	
+	private int n;
+	private int f;
+	
 	// Constructor.
-	public TreeManager(ServerCommunicationSystem commS, ServerViewController SVController, int leader) {
+	public MultiRootedSP(
+			ServerCommunicationSystem commS, 
+			ServerViewController SVController, 
+			int leader) {
 		this.logger = LoggerFactory.getLogger(this.getClass());
 		
 		this.commS = commS;
 		this.SVController = SVController;
 		this.replicaId = SVController.getStaticConf().getProcessId();
-		this.parent = -1;
+		this.f = this.SVController.getCurrentViewF();
+		this.n = this.SVController.getCurrentViewN();
+		
+		this.viewChildren = new HashMap<>();
+		this.viewParent = new HashMap<>();
+		this.viewUnexplored = new HashMap<>();
+		
 		this.currentLeader = leader;
-		this.unexplored = new LinkedList<Integer>();
 
-		// int[] neighbors = SVController.getCurrentViewOtherAcceptors();
-		Integer[] neighbors = Arrays.stream(SVController.getCurrentViewOtherAcceptors()).boxed()
-				.toArray(Integer[]::new);
-		Collections.shuffle(Arrays.asList(neighbors), new Random());
-		for (int i = 0; i < neighbors.length; i++) {
-			this.unexplored.add(neighbors[i]);
+		//create initial view. Startup
+		int [] allNeighbors = SVController.getCurrentViewAcceptors();
+		
+		for (int view = 0; view < allNeighbors.length; view++) {
+			this.viewChildren.put(view, new HashSet<Integer>());
+			this.viewUnexplored.put(view, new LinkedList<Integer>());
+			this.viewParent.put(view, -1);
+			
+			Integer[] neighbors = Arrays.stream(allNeighbors).boxed().toArray(Integer[]::new);
+			Collections.shuffle(Arrays.asList(neighbors), new Random());
+				
+			for (int j = 0; j < neighbors.length; j++) {
+				if(view != neighbors[j] 
+						&& this.viewUnexplored.get(view).size() < (f+1)) {
+						this.viewUnexplored.get(view).add(neighbors[j]);
+					}
+				else  continue;
+			}
 		}
-		this.children = new LinkedList<Integer>();
+		
 	}
 
 	
 
-	public boolean initProtocol() {
-		if (this.replicaId == this.currentLeader && parent == -1) {
-			this.parent = replicaId;
-			logger.debug("Spanning Tree initialized by root.\n{}" , toString());
-			explore();
+	public boolean initProtocol(int viewTag) {
+		if (this.replicaId == viewTag 
+				&& this.viewParent.get(viewTag) == -1) {
+			viewParent.put(replicaId,replicaId);
+			logger.debug("Spanning Tree initialized by root viewTag:{}", viewTag);
+			explore(viewTag);
 			/*
 			 * TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M); while
 			 * (!this.unexplored.isEmpty()) { int toSend = this.unexplored.poll();
@@ -98,18 +125,18 @@ public class TreeManager {
 		}
 	}
 
-	private void explore() {
+	private void explore(int viewTag) {
 		lock.lock();
-		if (!this.unexplored.isEmpty()) {
-			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M);
-			int toSend = this.unexplored.poll();
+		if (!this.viewUnexplored.get(viewTag).isEmpty()) {
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.M);
+			int toSend = this.viewUnexplored.get(viewTag).poll();
 			logger.trace("Sending M message to: {}", toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
 		} else {
-			if (this.parent != this.replicaId) {
-				TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.PARENT);
-				commS.send(new int[] { this.parent }, signMessage(tm));
-				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED));
+			if (this.viewParent.get(viewTag) != this.replicaId) {
+				TreeMessage tm = new TreeMessage(viewTag, TreeOperationType.PARENT);
+				commS.send(new int[] { this.viewParent.get(viewTag) }, signMessage(tm));
+				receivedFinished(new TreeMessage(viewTag, TreeOperationType.FINISHED));
 			}
 		}
 		lock.unlock();
@@ -125,7 +152,7 @@ public class TreeManager {
 		
 		switch (msg.getTreeOperationType()) {
 		case INIT:
-			initProtocol();
+			initProtocol(msg.getViewTag());
 			break;
 		case M:
 			receivedM(msg);
@@ -144,7 +171,7 @@ public class TreeManager {
 			logger.info("RECONFIG message not catched...");
 			break;
 		case STATIC_TREE:
-			createStaticTree();
+			//createStaticTree();
 			break;
 		case NOOP:
 		default:
@@ -154,43 +181,43 @@ public class TreeManager {
 	}
 
 	private void receivedM(TreeMessage msg) {
-		if (this.parent == -1) {
+		if (this.viewParent.get(msg.getViewTag()) == -1) {
 			lock.lock();
-			this.parent = msg.getSender();
-			this.unexplored.remove(msg.getSender());
+			this.viewParent.put(msg.getViewTag(), msg.getSender());
+			this.viewUnexplored.get(msg.getViewTag()).remove(msg.getSender());
 			lock.unlock();
 			logger.trace("Defining {} as my patent.", msg.getSender());
-			explore();
+			explore(msg.getViewTag());
 		} else {
 			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY);
 			commS.send(new int[] { msg.getSender() }, signMessage(tm));
 			lock.lock();
-			this.unexplored.remove(msg.getSender());
+			this.viewUnexplored.get(msg.getViewTag()).remove(msg.getSender());
 			lock.unlock();
 			logger.trace("Sending ALREADY msg to: {}", msg.getSender());
 		}
 	}
 
 	private void receivedAlready(TreeMessage msg) {
-		explore();
+		explore(msg.getViewTag());
 	}
 
 	private void receivedParent(TreeMessage msg) {
 		System.out.println("Adding " + msg.getSender() + " as a child.");
 		lock.lock();
-		if (!this.children.contains(msg.getSender()))
-			this.children.add(msg.getSender());
+		if (!this.viewChildren.get(msg.getViewTag()).contains(msg.getSender()))
+			this.viewChildren.get(msg.getViewTag()).add(msg.getSender());
 		lock.unlock();
-		explore();
+		explore(msg.getViewTag());
 	}
 
 	private void receivedFinished(TreeMessage msg) {
 		if (!this.finish) {
 			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
 			this.finish = true;
-			if (replicaId != parent) {
-				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.FINISHED);
-				commS.send(new int[] { parent }, signMessage(tm));
+			if (msg.getViewTag() != this.viewParent.get(msg.getViewTag())) {
+				TreeMessage tm = new TreeMessage(msg.getViewTag(), TreeOperationType.FINISHED);
+				commS.send(new int[] { this.viewParent.get(msg.getViewTag()) }, signMessage(tm));
 			}
 		}
 	}
@@ -219,44 +246,36 @@ public class TreeManager {
 		}
 	}
 
-	public List<Integer> getChildren() {
-		return this.children;
-	}
 
 	public int getParent() {
-		return this.parent;
+		return this.viewParent.get(replicaId);
 	}
 
 	public boolean getFinish() {
 		return this.finish;
 	}
-
-	/*public void forwardToParent(ForwardTree msg) {
-		if(this.parent != replicaId)
-			commS.send(new int[] { this.parent }, msg);
-	}*/
 	
 	public void forwardTreeMessage(ForwardTree msg) {
 		ConsensusMessage cm = msg.getConsensusMessage();
 		
 		switch (msg.getDirection()) {
 		case UP:
-			if(this.parent != replicaId) {
+			if(this.viewParent.get(replicaId) != replicaId) {
 				logger.info("Forwarding Tree message UP, "
 						+ "fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
-						new Object[] {msg.getSender(), parent, cm.getSender(), cm.getType()}
+						new Object[] {msg.getSender(), this.viewParent.get(msg.getViewTag()), cm.getSender(), cm.getType()}
 						);	
 				ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.UP, msg.getViewTag()); 
-				commS.send(new int[] { this.parent }, fwdTree);
+				commS.send(new int[] { this.viewParent.get(msg.getViewTag()) }, fwdTree);
 			}
 			break;
 		case DOWN:
-			if (this.children.isEmpty()) {
+			if (this.viewChildren.get(msg.getViewTag()).isEmpty()) {
 				logger.debug("I have no children.");
 				return;
 			}
-			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN, msg.getViewTag());
-			Iterator<Integer> it = this.children.iterator();
+			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN,msg.getViewTag());
+			Iterator<Integer> it = this.viewChildren.get(msg.getViewTag()).iterator();
 			while (it.hasNext()) {
 				Integer child = (Integer) it.next();
 				logger.info("Forwarding Tree message DOWN, fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
@@ -270,87 +289,22 @@ public class TreeManager {
 			break;
 		}
 	}
-	/*public void forwardToChildren(ForwardTree msg) {
-		ConsensusMessage cm = msg.getConsensusMessage();
-		
-		if (this.children.isEmpty()) {
-			logger.debug("I have no children.");
-			return;
-		}
-		ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN); 
-		
-		Signature eng;
-		try {
-			eng = TOMUtil.getSigEngine();
-			eng.initSign(SVController.getStaticConf().getPrivateKey());
-			eng.update(fwdTree.toString().getBytes());
-			fwdTree.setSignature(eng.sign());
-		} catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
-			e.printStackTrace();
-		}
-				
-		Iterator<Integer> it = this.children.iterator();
-		while (it.hasNext()) {
-			Integer child = (Integer) it.next();
-			logger.info("Forwarding Tree message: fwdT.from:{} -> to{}:, cm.sender:{}, cm.type:{}", 
-					new Object[] {msg.getSender(), child, cm.getSender(), cm.getType()}
-					);	
-			commS.send(new int[] { child }, fwdTree);
-		}
-	}*/
-
-	public synchronized void createStaticTree() {
-		if (!this.finish) {
-			switch (replicaId) {
-			case 0:
-				this.parent = 0;
-				this.children.add(1);
-				this.children.add(2);
-				break;
-			case 1:
-				this.parent = 0;
-				this.children.add(3);
-				//this.children.add(4);
-				break;
-			case 2:
-				this.parent = 0;
-				//this.children.add(5);
-				//this.children.add(6);
-				break;
-			case 3:
-				this.parent = 1;
-				break;
-			case 4:
-				this.parent = 1;
-				break;
-			case 5:
-				this.parent = 2;
-				break;
-			case 6:
-				this.parent = 2;
-				break;
-			default:
-				break;
-			}
-			this.finish = true;
-			logger.debug("Stacic tree created. \n {}" ,toString());
-		}
-	}
 	
 	@Override
 	public String toString() {
-		String appended = "\nReplicaId: " + replicaId + "";
-		appended += "\nParent: " + parent + "\n";
-		if (!this.children.isEmpty()) {
-			appended += "Children: \n";
-			Iterator<Integer> it = this.children.iterator();
-			while (it.hasNext()) {
-				appended += "\t " + (Integer) it.next() + " \n";
-			}
-		}else {
-			appended += "I am a leaf.\n";
+		
+		String appended = "";
+		logger.info("All Views: {}", SVController.getCurrentViewAcceptors());
+		
+		Iterator<Integer> it = this.viewChildren.keySet().iterator();
+		while (it.hasNext()) {
+			Integer view = (Integer) it.next();
+			logger.info("View: {}", view);
+			logger.info("\tChildren: {}", this.viewChildren.get(view));
+			logger.info("\tParent: {} ", this.viewParent.get(view));
+			logger.info("\tUnexplored: {} ", this.viewUnexplored.get(view));
+			
 		}
-
 		return appended;
 	}
 }

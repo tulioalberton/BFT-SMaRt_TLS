@@ -27,8 +27,9 @@ import bftsmart.consensus.messages.ConsensusMessage;
  */
 public class ForwardTree extends SystemMessage {
 
-	private byte[] signature; // signature
+	//private byte[] signature; // signature
 	private ConsensusMessage cm;
+	private int viewTag;
 	public enum Direction {
 		UP, // Forward Message Up Tree 
 		DOWN// Forward Message Down Tree
@@ -39,10 +40,14 @@ public class ForwardTree extends SystemMessage {
 	 */
 	public ForwardTree() {}
 
-	public ForwardTree(int from, ConsensusMessage cm, Direction direction) {
+	public ForwardTree(int from, 
+						ConsensusMessage cm, 
+						Direction direction,
+						int viewTag) {
 		super(from);
 		this.cm = cm;
 		this.direction = direction;
+		this.viewTag = viewTag;
 	}
 
 	/**
@@ -52,10 +57,11 @@ public class ForwardTree extends SystemMessage {
 	public void writeExternal(ObjectOutput out) throws IOException {
 		super.writeExternal(out);// write from
 
-		out.writeInt(signature.length);
-		out.write(signature);
+		//out.writeInt(signature.length);
+		//out.write(signature);
 		out.writeObject(cm);
 		out.writeObject(direction);
+		out.writeInt(viewTag);
 		
 		
 	}
@@ -65,30 +71,33 @@ public class ForwardTree extends SystemMessage {
 
 		super.readExternal(in);
 
-		this.signature = new byte[in.readInt()];
-		in.read(this.signature);
+		//this.signature = new byte[in.readInt()];
+		//in.read(this.signature);
 		this.cm = (ConsensusMessage) in.readObject();
 		this.direction = (Direction) in.readObject();
-		
+		this.viewTag = in.readInt();
 	}
 
 	/**
 	 * getters and setters
 	 * */ 
 	
-	public void setSignature(byte[] signature) {
-		this.signature = signature;
+	/*public void setSignature(byte[] signature) {
+		signature = signature;
 	}
 
 	public byte[] getSignature() {
 		return signature;
-	}
+	}*/
 
 	public ConsensusMessage getConsensusMessage() {
-		return this.cm;
+		return cm;
 	}
 	public Direction getDirection () {
-		return this.direction;
+		return direction;
+	}
+	public int getViewTag() {
+		return viewTag;
 	}
 	
 	

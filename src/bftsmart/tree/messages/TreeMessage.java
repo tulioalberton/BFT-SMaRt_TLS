@@ -39,7 +39,7 @@ public class TreeMessage extends SystemMessage {
 		
 		
 	};
-	
+	private int viewTag;
 	private byte[] signature; // signature
 	private TreeOperationType treeOperation; // TreeOperationType.
 	private boolean result = false; // result of the operation // OK:1:true and NOK:0:false
@@ -55,6 +55,7 @@ public class TreeMessage extends SystemMessage {
 		super(from);
 		this.treeOperation = treeOperation;
 		this.timestamp = System.nanoTime();
+		this.viewTag = viewTag;
 	}
 
 	/**
@@ -67,10 +68,9 @@ public class TreeMessage extends SystemMessage {
 
 		out.writeInt(signature.length);
 		out.write(signature);
-		
 		out.writeBoolean(result);
-		
 		out.writeLong(timestamp);
+		out.writeInt(viewTag);
 	}
 
 	@Override
@@ -83,8 +83,8 @@ public class TreeMessage extends SystemMessage {
 		in.read(this.signature);
 		
 		this.result = in.readBoolean();
-		
 		this.timestamp = in.readLong();
+		this.viewTag = in.readInt();
 	}
 
 	/**
@@ -111,6 +111,9 @@ public class TreeMessage extends SystemMessage {
 	}
 	public TreeOperationType getTreeOperationType() {
 		return this.treeOperation;
+	}
+	public int getViewTag() {
+		return this.viewTag;
 	}
 
 	@Override

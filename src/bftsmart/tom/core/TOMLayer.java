@@ -309,7 +309,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
     @Override
     public void requestReceived(TOMMessage msg) {
                
-    	System.out.println("Received msg: " + msg);
         if (!doWork) return;
         
         // check if this request is valid and add it to the client' pending requests list

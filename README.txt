@@ -24,11 +24,11 @@ To run any demonstration you first need to configure BFT-SMaRt to define the pro
 2 127.0.0.1 11020 11021
 3 127.0.0.1 11030 11031
 
-Important tip #1: Always provide IP addresses instead of hostnames. If a machine running a replica is not correctly configured, 
+**Important tip #1: Always provide IP addresses instead of hostnames. If a machine running a replica is not correctly configured, 
 BFT-SMaRt may fail to obtain the proper IP address and use the loopback address instead (127.0.0.1). This phenomenom may prevent 
 clients and/or replicas from successfully establishing a connection among them.
 
-Important tip #2: Clients requests should not be issued before all replicas have been properly initialized. 
+**Important tip #2: Clients requests should not be issued before all replicas have been properly initialized. 
 Replicas are ready to process client requests when each one outputs '(DeliveryThread.run) canDeliver released.' in the console.
 "Ready to process operations"
 
@@ -58,7 +58,7 @@ bash runscripts/smartrun.sh bftsmart.demo.counter.CounterClient 1001 <increment>
 
 If <increment> equals 0 the request will be read-only. Default <number of operations> equals 1000.
 
-Important tip #6: always make sure that each client uses a unique ID. Otherwise, clients may not be able to complete their operations.
+Important tip #5: always make sure that each client uses a unique ID. Otherwise, clients may not be able to complete their operations.
 
 You can use the './runscripts/runsmart.bat'" script in Windows, and the './runscripts/runsmart.sh' script in Linux.
 When running the script in Linux it is necessary to set the permissions to execute the script with 

@@ -31,7 +31,6 @@ import bftsmart.consensus.Decision;
 import bftsmart.consensus.messages.MessageFactory;
 import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.consensus.roles.Acceptor;
-import bftsmart.consensus.roles.Acceptor;
 import bftsmart.consensus.roles.Proposer;
 import bftsmart.reconfiguration.ServerViewController;
 
@@ -50,7 +49,6 @@ public final class ExecutionManager {
 
 	private ServerViewController controller;
 	private Acceptor acceptor; // Acceptor role of the PaW algorithm
-	private Acceptor acceptorSSLTLS; // Acceptor role of the PaW algorithm
 	private Proposer proposer; // Proposer role of the PaW algorithm
 	private Map<Integer, Consensus> consensuses = new TreeMap<Integer, Consensus>(); // Consensuses
 	private ReentrantLock consensusesLock = new ReentrantLock(); // lock for consensuses table
@@ -275,7 +273,7 @@ public final class ExecutionManager {
 
 					addOutOfContextMessage(msg);
 				} else { // can process!
-					logger.debug("Message for consensus " + msg.getNumber() + " can be processed");
+					logger.trace("Message for consensus " + msg.getNumber() + " can be processed");
 
 					// Logger.debug = false;
 					canProcessTheMessage = true;

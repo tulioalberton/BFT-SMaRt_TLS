@@ -48,6 +48,7 @@ import bftsmart.tom.server.defaultservices.DefaultReplier;
 import bftsmart.tom.util.KeyLoader;
 import bftsmart.tom.util.ShutdownHookThread;
 import bftsmart.tom.util.TOMUtil;
+import bftsmart.tree.MultiRootedSP;
 import bftsmart.tree.TreeManager;
 
 /**
@@ -564,6 +565,12 @@ public class ServiceReplica {
 
 		TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
 		cs.setTreeManager(tm);
+		
+		MultiRootedSP mrSP = new MultiRootedSP(cs, SVController, executionManager.getCurrentLeader());
+		mrSP.toString();
+		//cs.setTreeManager(tm);
+		
+		
 	}
 
 	/**

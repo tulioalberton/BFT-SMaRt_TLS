@@ -84,9 +84,18 @@ public class MessageHandler {
         	
         	ConsensusMessage consMsg = fwd.getConsensusMessage();        	
         	consMsg.authenticated = true;
-        	logger.info("### Catched a ForwardTree with a ConsensusMessage embedded: {}", consMsg.getType());
+        	logger.info("### Catched a ForwardTreeMessage, "
+        			+ "direction:{}, "
+        			+ "originator:{}, "
+        			+ "from:{}, "
+        			+ "with a CM message: {}", 
+        			new Object[] {fwd.getDirection(), 
+        					consMsg.getSender(),
+        					fwd.getSender(), 
+        					consMsg.getType()		
+        			});
         	
-        	this.tm.forwardToChildren(fwd);
+        	this.tm.forwardTreeMessage(fwd);
         	
         	/**
         	 * TESTE ONLY

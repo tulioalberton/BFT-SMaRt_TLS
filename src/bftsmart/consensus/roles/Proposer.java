@@ -20,6 +20,7 @@ import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.consensus.messages.MessageFactory;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tree.messages.ForwardTree;
+import bftsmart.tree.messages.ForwardTree.Direction;
 
 /**
  * This class represents the proposer role in the consensus protocol.
@@ -58,9 +59,10 @@ public class Proposer {
          */
     	if(communication.getTreeManager().getFinish()) {
     		ConsensusMessage propose = factory.createPropose(cid, 0, value);
-    		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose); 
+    		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose, 
+    				Direction.DOWN, propose.getSender()); 
     		
-        	communication.getTreeManager().forwardToChildren(fwdTree);
+        	communication.getTreeManager().forwardTreeMessage(fwdTree);
         }else{ 
             communication.send(this.controller.getCurrentViewAcceptors(),
                     factory.createPropose(cid, 0, value));
