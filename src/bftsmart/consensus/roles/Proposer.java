@@ -57,12 +57,12 @@ public class Proposer {
         /**
          * Spanning-tree communication.
          */
-    	if(communication.getTreeManager().getFinish()) {
+    	if(communication.getMultiRootedSP().getFinish()) {
     		ConsensusMessage propose = factory.createPropose(cid, 0, value);
     		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose, 
     				Direction.DOWN, propose.getSender()); 
     		
-        	communication.getTreeManager().forwardTreeMessage(fwdTree);
+        	communication.getMultiRootedSP().forwardTreeMessage(fwdTree);
         }else{ 
             communication.send(this.controller.getCurrentViewAcceptors(),
                     factory.createPropose(cid, 0, value));

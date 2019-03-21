@@ -50,6 +50,7 @@ import bftsmart.tom.util.ShutdownHookThread;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.MultiRootedSP;
 import bftsmart.tree.TreeManager;
+import bftsmart.tree.messages.TreeMessage;
 
 /**
  * This class receives messages from DeliveryThread and manages the execution
@@ -65,7 +66,7 @@ public class ServiceReplica {
 	private Logger logger = LoggerFactory.getLogger(this.getClass());
 
 	// replica ID
-	private int id;
+	private int replicaId;
 	// Server side communication system
 	private ServerCommunicationSystem cs = null;
 	private ReplyManager repMan = null;
@@ -137,7 +138,7 @@ public class ServiceReplica {
 	 */
 	public ServiceReplica(int id, String configHome, Executable executor, Recoverable recoverer,
 			RequestVerifier verifier, Replier replier, KeyLoader loader) {
-		this.id = id;
+		this.replicaId = id;
 		this.SVController = new ServerViewController(id, configHome, loader);
 		this.executor = executor;
 		this.recoverer = recoverer;
@@ -184,7 +185,7 @@ public class ServiceReplica {
 	public void joinMsgReceived(VMMessage msg) {
 		ReconfigureReply r = msg.getReply();
 
-		if (r.getView().isMember(id)) {
+		if (r.getView().isMember(replicaId)) {
 			this.SVController.processJoinResult(r);
 
 			initTOMLayer(); // initiaze the TOM layer
@@ -216,12 +217,12 @@ public class ServiceReplica {
 		// applications to log it or keep any proof.
 		response = executor.executeUnordered(message.getContent(), msgCtx);
 
-		if (message.getReqType() == TOMMessageType.UNORDERED_HASHED_REQUEST && message.getReplyServer() != this.id) {
+		if (message.getReqType() == TOMMessageType.UNORDERED_HASHED_REQUEST && message.getReplyServer() != this.replicaId) {
 			response = TOMUtil.computeHash(response);
 		}
 
 		// Generate the messages to send back to the clients
-		message.reply = new TOMMessage(id, message.getSession(), message.getSequence(), message.getOperationId(),
+		message.reply = new TOMMessage(replicaId, message.getSession(), message.getSequence(), message.getOperationId(),
 				response, SVController.getCurrentViewId(), message.getReqType());
 
 		if (SVController.getStaticConf().getNumRepliers() > 0) {
@@ -369,7 +370,7 @@ public class ServiceReplica {
 										msgCtx);
 
 								// Generate the messages to send back to the clients
-								request.reply = new TOMMessage(id, request.getSession(), request.getSequence(),
+								request.reply = new TOMMessage(replicaId, request.getSession(), request.getSequence(),
 										request.getOperationId(), response, SVController.getCurrentViewId(),
 										request.getReqType());
 								logger.debug("sending reply to " + request.getSender());
@@ -381,8 +382,9 @@ public class ServiceReplica {
 						case RECONFIG:
 							SVController.enqueueUpdate(request);
 							break;
-						case TREE_INIT:
-							logger.info("Received a TREE_INIT message, " + "from clientId: {}", request.getSender());
+						case TREE_MESSAGE:
+							logger.info("Received a TREE_MESSAGE, "
+										+ "from clientId: {}", request.getSender());
 
 							/**
 							 * To create a static tree version, for test only purpose. There are two ways,
@@ -390,13 +392,16 @@ public class ServiceReplica {
 							 * easy way, call createStaticTree() directly.
 							 * 
 							 */
-							cs.getTreeManager().createStaticTree();
+							//cs.getTreeManager().createStaticTree();
 
 							/**
 							 * To initialize the spanning-tree protocol
 							 */
-							//cs.getTreeManager().initProtocol();
-
+							
+							TreeMessage tMsg = (TreeMessage) TOMUtil.getObject(request.getContent());
+							//cs.getMultiRootedSP().initProtocol(replicaId);
+							cs.getMultiRootedSP().treatMessages(tMsg);
+							
 							/**
 							 * Generate the answer to client. Does not imply the tree creation...
 							 */
@@ -408,7 +413,7 @@ public class ServiceReplica {
 									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
 									false);
 
-							request.reply = new TOMMessage(id, request.getSession(), request.getSequence(),
+							request.reply = new TOMMessage(replicaId, request.getSession(), request.getSequence(),
 									request.getOperationId(), "1".toString().getBytes(),
 									SVController.getCurrentViewId(), request.getReqType());
 							replier.manageReply(request, msgCtxTree);
@@ -493,7 +498,7 @@ public class ServiceReplica {
 			// Send the replies back to the client
 			for (int index = 0; index < toBatch.size(); index++) {
 				TOMMessage request = toBatch.get(index);
-				request.reply = new TOMMessage(id, request.getSession(), request.getSequence(),
+				request.reply = new TOMMessage(replicaId, request.getSession(), request.getSequence(),
 						request.getOperationId(), replies[index], SVController.getCurrentViewId(),
 						request.getReqType());
 
@@ -529,7 +534,7 @@ public class ServiceReplica {
 		}
 
 		// Assemble the total order messaging layer
-		MessageFactory messageFactory = new MessageFactory(id);
+		MessageFactory messageFactory = new MessageFactory(replicaId);
 
 		Acceptor acceptor = null;
 		Acceptor acceptorSSLTLS = null;
@@ -541,7 +546,7 @@ public class ServiceReplica {
 
 		ExecutionManager executionManager = null;
 
-		executionManager = new ExecutionManager(SVController, acceptor, proposer, id);
+		executionManager = new ExecutionManager(SVController, acceptor, proposer, replicaId);
 		acceptor.setExecutionManager(executionManager);
 
 		tomLayer = new TOMLayer(executionManager, this, recoverer, acceptor, cs, SVController, verifier);
@@ -563,12 +568,11 @@ public class ServiceReplica {
 		tomLayer.start(); // start the layer execution
 		tomStackCreated = true;
 
-		TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
-		cs.setTreeManager(tm);
+		/*TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
+		cs.setTreeManager(tm);*/
 		
 		MultiRootedSP mrSP = new MultiRootedSP(cs, SVController, executionManager.getCurrentLeader());
-		mrSP.toString();
-		//cs.setTreeManager(tm);
+		cs.setMultiRootedSP(mrSP);
 		
 		
 	}
@@ -599,6 +603,6 @@ public class ServiceReplica {
 	 * @return Replica ID
 	 */
 	public int getId() {
-		return id;
+		return replicaId;
 	}
 }

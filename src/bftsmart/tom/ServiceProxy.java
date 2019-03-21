@@ -236,8 +236,8 @@ public class ServiceProxy extends TOMSender {
 		replyServer = -1;
 		hashResponseController = null;
 
-		if(requestType == TOMMessageType.TREE_INIT){
-			logger.info("Received a TREE_INIT message. ");
+		if(requestType == TOMMessageType.TREE_MESSAGE){
+			logger.info("Received a TREE_MESSAGE. ");
 			TOMulticast(request, reqId, operationId, reqType);
 			
 		}if(requestType == TOMMessageType.REQUEST_LEADER){

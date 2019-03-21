@@ -28,9 +28,8 @@ public enum TOMMessageType {
     ASK_STATUS, // 4
     STATUS_REPLY,// 5
     UNORDERED_HASHED_REQUEST, // 6
-    TREE_INIT, // 7
-    TREE_RECONFIG, // 8
-    REQUEST_LEADER; // 9
+    TREE_MESSAGE, // 7
+    REQUEST_LEADER; // 8
     
     public int toInt() {
         switch(this) {
@@ -41,9 +40,8 @@ public enum TOMMessageType {
             case ASK_STATUS: return 4;
             case STATUS_REPLY: return 5;
             case UNORDERED_HASHED_REQUEST: return 6;
-            case TREE_INIT: return 7;
-            case TREE_RECONFIG: return 8;
-            case REQUEST_LEADER: return 9;
+            case TREE_MESSAGE: return 7;
+            case REQUEST_LEADER: return 8;
             default: return -1;
         }
     }
@@ -57,9 +55,8 @@ public enum TOMMessageType {
             case 4: return ASK_STATUS;
             case 5: return STATUS_REPLY;
             case 6: return UNORDERED_HASHED_REQUEST;
-            case 7: return TREE_INIT;
-            case 8: return TREE_RECONFIG;
-            case 9: return REQUEST_LEADER;
+            case 7: return TREE_MESSAGE;
+            case 8: return REQUEST_LEADER;
             default: return RECONFIG;
         }            
     }

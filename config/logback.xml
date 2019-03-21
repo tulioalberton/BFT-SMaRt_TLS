@@ -51,6 +51,6 @@
 	-->
 	<logger name="bftsmart.consensus.roles.Acceptor" level="DEBUG"></logger>
 	
-	<logger name="bftsmart.tree.TreeManager" level="TRACE"></logger>
+	<logger name="bftsmart.tree.MultiRootedSP" level="TRACE"></logger>
 	
 </configuration>

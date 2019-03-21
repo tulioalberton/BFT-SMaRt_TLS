@@ -183,9 +183,9 @@ public final class Acceptor {
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
 
-			if (communication.getTreeManager().getFinish()) {
+			if (communication.getMultiRootedSP().getFinish()) {
 				// we will pass all messages through the spanning-tree.
-				communication.getTreeManager().forwardTreeMessage(
+				communication.getMultiRootedSP().forwardTreeMessage(
 						new ForwardTree(msg.getSender(), msg, Direction.DOWN,msg.getSender()));
 			}
 
@@ -193,20 +193,20 @@ public final class Acceptor {
 		}
 			break;
 		case MessageFactory.WRITE: {
-			if (communication.getTreeManager().getFinish()) {
+			if (communication.getMultiRootedSP().getFinish()) {
 				// we will forward all messages through the spanning-tree.
-				communication.getTreeManager().forwardTreeMessage(
+				communication.getMultiRootedSP().forwardTreeMessage(
 						new ForwardTree(msg.getSender(), msg, Direction.UP,msg.getSender()));
-				//communication.getTreeManager().forwardTreeMessage(new ForwardTree(me, msg, Direction.DOWN));
+				//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, msg, Direction.DOWN));
 			}
 			writeReceived(epoch, msg.getSender(), msg.getValue());
 		}
 			break;
 		case MessageFactory.ACCEPT: {
-			if (communication.getTreeManager().getFinish()) {
+			if (communication.getMultiRootedSP().getFinish()) {
 				// we will forward all messages through the spanning-tree.
-				//communication.getTreeManager().forwardTreeMessage(new ForwardTree(me, msg, Direction.UP));
-				communication.getTreeManager().forwardTreeMessage(
+				//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, msg, Direction.UP));
+				communication.getMultiRootedSP().forwardTreeMessage(
 						new ForwardTree(msg.getSender(), msg, Direction.DOWN,msg.getSender()));
 			}
 			acceptReceived(epoch, msg);
@@ -285,10 +285,10 @@ public final class Acceptor {
 						advanceBatchSaving(map);
 					}
 
-					if (communication.getTreeManager().getFinish()) {
+					if (communication.getMultiRootedSP().getFinish()) {
 						// Write messages goes UP the tree..
 						ConsensusMessage msg = factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash);
-						communication.getTreeManager().forwardTreeMessage( 
+						communication.getMultiRootedSP().forwardTreeMessage( 
 								new ForwardTree(me, msg, Direction.UP,msg.getSender()));
 					} else {
 						logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
@@ -410,11 +410,11 @@ public final class Acceptor {
 					}
 				}
 
-				if (communication.getTreeManager().getFinish()) {
+				if (communication.getMultiRootedSP().getFinish()) {
 					// Write messages goes UP the tree..
-					communication.getTreeManager().forwardTreeMessage(
+					communication.getMultiRootedSP().forwardTreeMessage(
 							new ForwardTree(me, cm, Direction.DOWN,cm.getSender()));
-					//communication.getTreeManager().forwardTreeMessage(new ForwardTree(me, cm, Direction.UP));
+					//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, cm, Direction.UP));
 				} else {
 					int[] targets = controller.getCurrentViewOtherAcceptors();
 					communication.getServersConn().send(targets, cm);

@@ -44,7 +44,7 @@ public class TreeInit {
 		logger = LoggerFactory.getLogger(TreeInit.class);
 		
 		if (args.length < 2) {
-			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG>");
+			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG|STATUS>");
 			System.exit(-1);
 		}
 		
@@ -56,15 +56,18 @@ public class TreeInit {
 		case "RECONFIG":
 			treeOperation = TreeOperationType.RECONFIG;	
 			break;
+		case "STATUS":
+			treeOperation = TreeOperationType.STATUS;	
+			break;
 		default:
 			treeOperation = TreeOperationType.NOOP;
-			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG>");
+			logger.info("Usage: ... TreeClient <client id> <tree Operation INIT|RECONFIG|STATUS>");
 			logger.info("Catched NOOP...");
 			System.exit(-1);
 			break;
 		}
 		
-		treeMessage = new TreeMessage(clientId, treeOperation);
+		treeMessage = new TreeMessage(clientId, treeOperation, 0);
 		
 		Client client = new TreeInit.Client(clientId, treeMessage);
 		client.start();
@@ -101,7 +104,8 @@ public class TreeInit {
 			
 			logger.info("Executing init tree experiment.");
 			
-			byte[] reply = proxy.invoke(TOMUtil.getBytes(this.treeMessage), TOMMessageType.TREE_INIT);
+			byte[] reply = proxy.invoke(TOMUtil.getBytes(this.treeMessage), 
+					TOMMessageType.TREE_MESSAGE);
 			
 			System.out.println("Reply: " + reply);
 			proxy.close();

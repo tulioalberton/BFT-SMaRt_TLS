@@ -101,15 +101,15 @@ public class TreeManager {
 	private void explore() {
 		lock.lock();
 		if (!this.unexplored.isEmpty()) {
-			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M);
+			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M,currentLeader);
 			int toSend = this.unexplored.poll();
 			logger.trace("Sending M message to: {}", toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
 		} else {
 			if (this.parent != this.replicaId) {
-				TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.PARENT);
+				TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.PARENT,currentLeader);
 				commS.send(new int[] { this.parent }, signMessage(tm));
-				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED));
+				receivedFinished(new TreeMessage(this.replicaId, TreeOperationType.FINISHED,currentLeader));
 			}
 		}
 		lock.unlock();
@@ -162,7 +162,7 @@ public class TreeManager {
 			logger.trace("Defining {} as my patent.", msg.getSender());
 			explore();
 		} else {
-			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY);
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY,currentLeader);
 			commS.send(new int[] { msg.getSender() }, signMessage(tm));
 			lock.lock();
 			this.unexplored.remove(msg.getSender());
@@ -189,7 +189,7 @@ public class TreeManager {
 			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
 			this.finish = true;
 			if (replicaId != parent) {
-				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.FINISHED);
+				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.FINISHED,currentLeader);
 				commS.send(new int[] { parent }, signMessage(tm));
 			}
 		}

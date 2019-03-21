@@ -35,7 +35,8 @@ public class TreeMessage extends SystemMessage {
 		ALREADY,
 		PARENT,
 		FINISHED,
-		STATIC_TREE;
+		STATIC_TREE,
+		STATUS;
 		
 		
 	};
@@ -51,7 +52,7 @@ public class TreeMessage extends SystemMessage {
 	public TreeMessage() {
 	}
 
-	public TreeMessage(int from, TreeOperationType treeOperation) {
+	public TreeMessage(int from, TreeOperationType treeOperation, int viewTag) {
 		super(from);
 		this.treeOperation = treeOperation;
 		this.timestamp = System.nanoTime();

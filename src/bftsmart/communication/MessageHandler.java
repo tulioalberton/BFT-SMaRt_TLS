@@ -26,7 +26,7 @@ import bftsmart.tom.core.messages.ForwardedMessage;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.leaderchange.LCMessage;
 import bftsmart.tom.util.TOMUtil;
-import bftsmart.tree.TreeManager;
+import bftsmart.tree.MultiRootedSP;
 import bftsmart.tree.messages.ForwardTree;
 import bftsmart.tree.messages.TreeMessage;
 
@@ -40,7 +40,7 @@ public class MessageHandler {
 
 	private Acceptor acceptor;
 	private TOMLayer tomLayer;
-	private TreeManager tm;
+	private MultiRootedSP mrSP;
 
 	public MessageHandler() {
 	}
@@ -49,12 +49,11 @@ public class MessageHandler {
 		this.acceptor = acceptor;
 	}
 	
-	public TreeManager getTreeManager() {
-		return this.tm;
+	public MultiRootedSP getMultiRootedSP() {
+		return this.mrSP;
 	}
-	public void setTreeManager(TreeManager tm) {
-		//logger.warn(" TREE MANAGER DEFINED....: " + tm.toString());
-		this.tm = tm;
+	public void setMultiRootedSP(MultiRootedSP mrSP) {
+		this.mrSP = mrSP;
 	}
 
 	public void setTOMLayer(TOMLayer tomLayer) {
@@ -95,7 +94,7 @@ public class MessageHandler {
         					consMsg.getType()		
         			});
         	
-        	this.tm.forwardTreeMessage(fwd);
+        	this.mrSP.forwardTreeMessage(fwd);
         	
         	/**
         	 * TESTE ONLY
@@ -181,7 +180,7 @@ public class MessageHandler {
 					/******************************************************************/
 				} else if(sm instanceof TreeMessage){
 					TreeMessage treeM = (TreeMessage) sm;
-					this.tm.treatMessages(treeM);
+					this.mrSP.treatMessages(treeM);
 				}
 				else {
 					logger.warn("UNKNOWN MESSAGE TYPE: " + sm);

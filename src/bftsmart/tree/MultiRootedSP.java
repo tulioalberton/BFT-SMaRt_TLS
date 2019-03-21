@@ -20,14 +20,11 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Signature;
 import java.security.SignatureException;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Queue;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -53,11 +50,13 @@ public class MultiRootedSP {
 
 	private int replicaId;
 	private int currentLeader = -1;
-	private boolean finish = false;
+	private boolean globalFinish = false;
 	
 	private HashMap<Integer, Set<Integer>> viewChildren;
 	private HashMap<Integer, Integer> viewParent;
 	private HashMap<Integer, Queue<Integer>> viewUnexplored;
+	private HashMap<Integer, Boolean> viewFinished;
+	
 	
 	private int n;
 	private int f;
@@ -88,13 +87,16 @@ public class MultiRootedSP {
 			this.viewChildren.put(view, new HashSet<Integer>());
 			this.viewUnexplored.put(view, new LinkedList<Integer>());
 			this.viewParent.put(view, -1);
+			this.viewFinished.put(view, false);
 			
-			Integer[] neighbors = Arrays.stream(allNeighbors).boxed().toArray(Integer[]::new);
-			Collections.shuffle(Arrays.asList(neighbors), new Random());
+			int[] neighbors = allNeighbors;
+			/*Integer[] neighbors = Arrays.stream(allNeighbors).boxed().toArray(Integer[]::new);
+			Collections.shuffle(Arrays.asList(neighbors), new Random());*/
 				
 			for (int j = 0; j < neighbors.length; j++) {
 				if(view != neighbors[j] 
-						&& this.viewUnexplored.get(view).size() < (f+1)) {
+						//&& this.viewUnexplored.get(view).size() < (f+1)
+						) {
 						this.viewUnexplored.get(view).add(neighbors[j]);
 					}
 				else  continue;
@@ -103,22 +105,13 @@ public class MultiRootedSP {
 		
 	}
 
-	
-
 	public boolean initProtocol(int viewTag) {
-		if (this.replicaId == viewTag 
+		if (replicaId == viewTag
 				&& this.viewParent.get(viewTag) == -1) {
-			viewParent.put(replicaId,replicaId);
+			viewParent.put(viewTag,viewTag);
 			logger.debug("Spanning Tree initialized by root viewTag:{}", viewTag);
+			removeFromViewUnexplored(viewTag, viewTag);
 			explore(viewTag);
-			/*
-			 * TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M); while
-			 * (!this.unexplored.isEmpty()) { int toSend = this.unexplored.poll();
-			 * System.out.println("Sending M message to: " + toSend); commS.send(new int[] {
-			 * toSend }, signedMessage(tm)); Random rand = new Random(); try {
-			 * Thread.sleep(rand.nextInt(10)); } catch (InterruptedException e) { // TODO
-			 * Auto-generated catch block e.printStackTrace(); } }
-			 */
 			return true;
 		} else {
 			return false;
@@ -128,15 +121,16 @@ public class MultiRootedSP {
 	private void explore(int viewTag) {
 		lock.lock();
 		if (!this.viewUnexplored.get(viewTag).isEmpty()) {
-			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.M);
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.M, viewTag );
 			int toSend = this.viewUnexplored.get(viewTag).poll();
-			logger.trace("Sending M message to: {}", toSend);
+			logger.trace("Sending M message, view:{}, to:{}", viewTag, toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
 		} else {
-			if (this.viewParent.get(viewTag) != this.replicaId) {
-				TreeMessage tm = new TreeMessage(viewTag, TreeOperationType.PARENT);
+			if (this.viewParent.get(viewTag) != viewTag) {
+				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.PARENT, viewTag);
 				commS.send(new int[] { this.viewParent.get(viewTag) }, signMessage(tm));
-				receivedFinished(new TreeMessage(viewTag, TreeOperationType.FINISHED));
+				
+				receivedFinished(new TreeMessage(replicaId, TreeOperationType.FINISHED, viewTag));
 			}
 		}
 		lock.unlock();
@@ -144,15 +138,18 @@ public class MultiRootedSP {
 	
 	public synchronized void treatMessages(TreeMessage msg) {
 		
-		logger.debug("Received TreeMessage, "
-				+ "Type:{}, Sender:{}.", msg.getTreeOperationType(), msg.getSender());
+		logger.debug("Received TreeMessage, view:{}, "
+				+ "Type:{}, Sender:{}.", 
+				msg.getViewTag(), msg.getTreeOperationType(), msg.getSender());
 		if (!verifySignature(msg)) {
 			return;
 		}
 		
 		switch (msg.getTreeOperationType()) {
 		case INIT:
-			initProtocol(msg.getViewTag());
+			logger.debug("", toString());
+			//initProtocol(msg.getViewTag());
+			initProtocol(replicaId);
 			break;
 		case M:
 			receivedM(msg);
@@ -173,6 +170,9 @@ public class MultiRootedSP {
 		case STATIC_TREE:
 			//createStaticTree();
 			break;
+		case STATUS:
+			logger.info("Tree Status: \n{}" , toString());
+			break;	
 		case NOOP:
 		default:
 			logger.info("NOOP or default message catched...");
@@ -181,19 +181,29 @@ public class MultiRootedSP {
 	}
 
 	private void receivedM(TreeMessage msg) {
+		removeFromViewUnexplored(msg.getViewTag(), replicaId);
 		if (this.viewParent.get(msg.getViewTag()) == -1) {
 			lock.lock();
 			this.viewParent.put(msg.getViewTag(), msg.getSender());
 			this.viewUnexplored.get(msg.getViewTag()).remove(msg.getSender());
 			lock.unlock();
-			logger.trace("Defining {} as my patent.", msg.getSender());
+			logger.trace("Defining {} as my parent for viewTag:{}.", 
+					msg.getSender(), msg.getViewTag());
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.PARENT, msg.getViewTag());
+			commS.send(new int[] { msg.getSender() }, signMessage(tm));
+			
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+					
 			explore(msg.getViewTag());
 		} else {
-			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY);
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.ALREADY, msg.getViewTag());
 			commS.send(new int[] { msg.getSender() }, signMessage(tm));
-			lock.lock();
 			this.viewUnexplored.get(msg.getViewTag()).remove(msg.getSender());
-			lock.unlock();
 			logger.trace("Sending ALREADY msg to: {}", msg.getSender());
 		}
 	}
@@ -212,12 +222,17 @@ public class MultiRootedSP {
 	}
 
 	private void receivedFinished(TreeMessage msg) {
-		if (!this.finish) {
+		if (!this.viewFinished.get(msg.getViewTag())) {
 			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
-			this.finish = true;
+			this.viewFinished.put(msg.getViewTag(), true);
 			if (msg.getViewTag() != this.viewParent.get(msg.getViewTag())) {
-				TreeMessage tm = new TreeMessage(msg.getViewTag(), TreeOperationType.FINISHED);
-				commS.send(new int[] { this.viewParent.get(msg.getViewTag()) }, signMessage(tm));
+				TreeMessage tm = new TreeMessage(msg.getViewTag(), 
+						TreeOperationType.FINISHED, msg.getViewTag());
+				//commS.send(SVController.getCurrentViewAcceptors(), signMessage(tm));
+				commS.send(new int[] {this.viewParent.get(msg.getViewTag())}, signMessage(tm));
+			}
+			if(!this.viewFinished.containsValue(false)) {
+				this.globalFinish = true;
 			}
 		}
 	}
@@ -238,7 +253,7 @@ public class MultiRootedSP {
 	private boolean verifySignature(TreeMessage msg) {
 		if(TOMUtil.verifySignature(SVController.getStaticConf().getPublicKey(msg.getSender()), 
 				msg.toString().getBytes(), msg.getSignature())) {
-			logger.debug("Message was successfully verified.");
+			//logger.debug("Message was successfully verified.");
 			return true;
 		}else {			
 			logger.warn("Signature verification NOT succeed.");
@@ -247,12 +262,13 @@ public class MultiRootedSP {
 	}
 
 
-	public int getParent() {
-		return this.viewParent.get(replicaId);
+	public int getParent(int viewTag) {
+		return this.viewParent.get(viewTag);
 	}
 
 	public boolean getFinish() {
-		return this.finish;
+		return false;
+		//return this.finish;
 	}
 	
 	public void forwardTreeMessage(ForwardTree msg) {
@@ -260,12 +276,12 @@ public class MultiRootedSP {
 		
 		switch (msg.getDirection()) {
 		case UP:
-			if(this.viewParent.get(replicaId) != replicaId) {
+			if(this.viewParent.get(msg.getViewTag()) != msg.getViewTag()) {
 				logger.info("Forwarding Tree message UP, "
 						+ "fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
 						new Object[] {msg.getSender(), this.viewParent.get(msg.getViewTag()), cm.getSender(), cm.getType()}
 						);	
-				ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.UP, msg.getViewTag()); 
+				ForwardTree fwdTree = new ForwardTree(msg.getViewTag(), cm, Direction.UP, msg.getViewTag()); 
 				commS.send(new int[] { this.viewParent.get(msg.getViewTag()) }, fwdTree);
 			}
 			break;
@@ -274,7 +290,7 @@ public class MultiRootedSP {
 				logger.debug("I have no children.");
 				return;
 			}
-			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN,msg.getViewTag());
+			ForwardTree fwdTree = new ForwardTree(msg.getViewTag(), cm, Direction.DOWN,msg.getViewTag());
 			Iterator<Integer> it = this.viewChildren.get(msg.getViewTag()).iterator();
 			while (it.hasNext()) {
 				Integer child = (Integer) it.next();
@@ -290,21 +306,26 @@ public class MultiRootedSP {
 		}
 	}
 	
+	private void removeFromViewUnexplored(int view, int me) {
+			this.viewUnexplored.get(view).remove(me);
+	}
+	
 	@Override
 	public String toString() {
 		
-		String appended = "";
-		logger.info("All Views: {}", SVController.getCurrentViewAcceptors());
+		String appended = "All Views: ";
 		
 		Iterator<Integer> it = this.viewChildren.keySet().iterator();
 		while (it.hasNext()) {
 			Integer view = (Integer) it.next();
-			logger.info("View: {}", view);
-			logger.info("\tChildren: {}", this.viewChildren.get(view));
-			logger.info("\tParent: {} ", this.viewParent.get(view));
-			logger.info("\tUnexplored: {} ", this.viewUnexplored.get(view));
+			appended += "\n\tView: " + view;
+			appended += "\n\t\tChildren: " + this.viewChildren.get(view);
+			appended += "\n\t\tParent: " + this.viewParent.get(view);
+			appended += "\n\t\tUnexplored: " + this.viewUnexplored.get(view);
+			appended += "\n\t\tGlobal Finish: " + this.globalFinish;
 			
 		}
 		return appended;
 	}
+	
 }
