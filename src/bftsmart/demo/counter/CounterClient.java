@@ -75,7 +75,7 @@ public class CounterClient {
 
 				if (reply != null) {
 					int newValue = new DataInputStream(new ByteArrayInputStream(reply)).readInt();
-					log.debug("Invocation: {}, returned value: {}", i, newValue);
+					log.info("Invocation: {}, returned value: {}", i, newValue);
 				} else {
 					log.error("Problem! Exiting.");
 					//break;

@@ -61,9 +61,10 @@ public class Proposer {
     		ConsensusMessage propose = factory.createPropose(cid, 0, value);
     		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose, 
     				Direction.DOWN, propose.getSender()); 
-    		
+    		System.out.println("## Sending propose by spanning tree way.");
         	communication.getMultiRootedSP().forwardTreeMessage(fwdTree);
-        }else{ 
+        }else{
+        	System.out.println("Sending propose by a normal way.");
             communication.send(this.controller.getCurrentViewAcceptors(),
                     factory.createPropose(cid, 0, value));
         }

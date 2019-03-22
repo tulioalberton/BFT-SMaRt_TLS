@@ -12,6 +12,8 @@ limitations under the License.
 */
 package bftsmart.demo.tree;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -22,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import bftsmart.tom.ServiceProxy;
+import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.core.messages.TOMMessageType;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.messages.TreeMessage;
@@ -104,10 +107,20 @@ public class TreeInit {
 			
 			logger.info("Executing init tree experiment.");
 			
-			byte[] reply = proxy.invoke(TOMUtil.getBytes(this.treeMessage), 
-					TOMMessageType.TREE_MESSAGE);
-			
-			System.out.println("Reply: " + reply);
+			byte[] reply = proxy.invoke(TOMUtil.getBytes(this.treeMessage), TOMMessageType.TREE_MESSAGE);
+			if (reply != null) {
+				String value;
+				try {
+					value = new DataInputStream(new ByteArrayInputStream(reply)).readUTF();
+					System.out.println("Reply: " + value);
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			} 
+			else {
+				System.out.println("Reply: NULL");
+			}
 			proxy.close();
 		}
 

@@ -82,7 +82,7 @@ public class MessageHandler {
         	ForwardTree fwd = (ForwardTree) sm;
         	
         	ConsensusMessage consMsg = fwd.getConsensusMessage();        	
-        	consMsg.authenticated = true;
+        //	consMsg.authenticated = true;
         	logger.info("### Catched a ForwardTreeMessage, "
         			+ "direction:{}, "
         			+ "originator:{}, "
@@ -94,13 +94,15 @@ public class MessageHandler {
         					consMsg.getType()		
         			});
         	
-        	this.mrSP.forwardTreeMessage(fwd);
+        	int myId = tomLayer.controller.getStaticConf().getProcessId();
+			
+        	//if(consMsg.getSender() != myId)
+        		this.mrSP.forwardTreeMessage(fwd);
         	
         	/**
         	 * TESTE ONLY
         	 */
-        	int myId = tomLayer.controller.getStaticConf().getProcessId();
-			
+        	
 			// If using SSL / TLS, the MAC will be turned off (TLS protocols already does),
 			// so the else is unnecessary with SSL/TLS.
 			if (consMsg.authenticated

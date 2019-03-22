@@ -56,558 +56,564 @@ import java.util.concurrent.Executors;
 
 /**
  * This class implements the state machine replication protocol described in
- * Joao Sousa's 'From Byzantine Consensus to BFT state machine replication: a latency-optimal transformation' (May 2012)
+ * Joao Sousa's 'From Byzantine Consensus to BFT state machine replication: a
+ * latency-optimal transformation' (May 2012)
  * 
- * The synchronization phase described in the paper is implemented in the Synchronizer class
+ * The synchronization phase described in the paper is implemented in the
+ * Synchronizer class
  */
 public final class TOMLayer extends Thread implements RequestReceiver {
 
-    private Logger logger = LoggerFactory.getLogger(this.getClass());
-    
-    private boolean doWork = true;
-    //other components used by the TOMLayer (they are never changed)
-    public ExecutionManager execManager; // Execution manager
-    public Acceptor acceptor; // Acceptor role of the PaW algorithm
-    public Acceptor acceptorSSLTLS; // Acceptor role of the PaW algorithm
-    private ServerCommunicationSystem communication; // Communication system between replicas
-    private DeliveryThread dt; // Thread which delivers total ordered messages to the appication
-    public StateManager stateManager = null; // object which deals with the state transfer protocol
+	private Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    //thread pool used to parallelize verification of requests contained in a batch
-    private ExecutorService verifierExecutor = null;
-    
-    /**
-     * Manage timers for pending requests
-     */
-    public RequestsTimer requestsTimer;
-    /**
-     * Store requests received but still not ordered
-     */
-    public ClientsManager clientsManager;
-    /**
-     * The id of the consensus being executed (or -1 if there is none)
-     */
-    private int inExecution = -1;
-    private int lastExecuted = -1;
+	private boolean doWork = true;
+	// other components used by the TOMLayer (they are never changed)
+	public ExecutionManager execManager; // Execution manager
+	public Acceptor acceptor; // Acceptor role of the PaW algorithm
+	public Acceptor acceptorSSLTLS; // Acceptor role of the PaW algorithm
+	private ServerCommunicationSystem communication; // Communication system between replicas
+	private DeliveryThread dt; // Thread which delivers total ordered messages to the appication
+	public StateManager stateManager = null; // object which deals with the state transfer protocol
 
-    public MessageDigest md;
-    private Signature engine;
-
-    private ReentrantLock hashLock = new ReentrantLock();
-
-    //the next two are used to generate non-deterministic data in a deterministic way (by the leader)
-    public BatchBuilder bb = new BatchBuilder(System.nanoTime());
-
-    /* The locks and conditions used to wait upon creating a propose */
-    private ReentrantLock leaderLock = new ReentrantLock();
-    private Condition iAmLeader = leaderLock.newCondition();
-    private ReentrantLock messagesLock = new ReentrantLock();
-    private Condition haveMessages = messagesLock.newCondition();
-    private ReentrantLock proposeLock = new ReentrantLock();
-    private Condition canPropose = proposeLock.newCondition();
-
-    private PrivateKey privateKey;
-    private HashMap<Integer, PublicKey> publicKey;
-    
-    public ServerViewController controller;
-
-    private RequestVerifier verifier;
-            
-    private Synchronizer syncher;
-    
-
+	// thread pool used to parallelize verification of requests contained in a batch
+	private ExecutorService verifierExecutor = null;
 
 	/**
-     * Creates a new instance of TOMulticastLayer
-     *
-     * @param manager Execution manager
-     * @param receiver Object that receives requests from clients
-     * @param recoverer
-     * @param a Acceptor role of the PaW algorithm
-     * @param cs Communication system between replicas
-     * @param controller Reconfiguration Manager
-     * @param verifier
-     */
-    public TOMLayer(ExecutionManager manager,
-            ServiceReplica receiver,
-            Recoverable recoverer,
-            Acceptor a,
-            ServerCommunicationSystem cs,
-            ServerViewController controller,
-            RequestVerifier verifier) {
+	 * Manage timers for pending requests
+	 */
+	public RequestsTimer requestsTimer;
+	/**
+	 * Store requests received but still not ordered
+	 */
+	public ClientsManager clientsManager;
+	/**
+	 * The id of the consensus being executed (or -1 if there is none)
+	 */
+	private int inExecution = -1;
+	private int lastExecuted = -1;
 
-        super("TOM Layer");
+	public MessageDigest md;
+	private Signature engine;
 
-        this.execManager = manager;
-        this.acceptor = a;
-        this.communication = cs;
-        this.controller = controller;
-        
-        /*Tulio Ribeiro*/
-        this.privateKey = this.controller.getStaticConf().getPrivateKey();
-        this.publicKey = new HashMap<>();
-        int [] targets  = this.controller.getCurrentViewAcceptors();
-        for (int i = 0; i < targets.length; i++) {
-            publicKey.put(targets[i], controller.getStaticConf().getPublicKey(targets[i]));
-        }
-        
-        // Use a many as the number of available cores. 
-        //this.verifierExecutor = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
-        this.verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-                
-        
-        //do not create a timer manager if the timeout is 0
-        if (this.controller.getStaticConf().getRequestTimeout() == 0) {
-            this.requestsTimer = null;
-        } else {
-            this.requestsTimer = new RequestsTimer(this, communication, this.controller); // Create requests timers manager (a thread)
-        }
+	private ReentrantLock hashLock = new ReentrantLock();
 
-        try {
-            this.md = TOMUtil.getHashEngine();
-        } catch (Exception e) {
-            logger.error("Failed to get message digest engine",e);
-        }
+	// the next two are used to generate non-deterministic data in a deterministic
+	// way (by the leader)
+	public BatchBuilder bb = new BatchBuilder(System.nanoTime());
 
-        try {
-            this.engine = TOMUtil.getSigEngine();
-        } catch (Exception e) {
-            logger.error("Failed to get signature engine",e);
-        }
+	/* The locks and conditions used to wait upon creating a propose */
+	private ReentrantLock leaderLock = new ReentrantLock();
+	private Condition iAmLeader = leaderLock.newCondition();
+	private ReentrantLock messagesLock = new ReentrantLock();
+	private Condition haveMessages = messagesLock.newCondition();
+	private ReentrantLock proposeLock = new ReentrantLock();
+	private Condition canPropose = proposeLock.newCondition();
 
-        
-        this.dt = new DeliveryThread(this, receiver, recoverer, this.controller); // Create delivery thread
-        this.dt.start();
-        this.stateManager = recoverer.getStateManager();
-        stateManager.init(this, dt);
-        
-        this.verifier = (verifier != null) ? verifier : ((request) -> true); // By default, never validate requests 
-		
-        // I have a verifier, now create clients manager
-        this.clientsManager = new ClientsManager(this.controller, requestsTimer, this.verifier);
+	private PrivateKey privateKey;
+	private HashMap<Integer, PublicKey> publicKey;
 
-        this.syncher = new Synchronizer(this); // create synchronizer
-    }
-    
-   
+	public ServerViewController controller;
 
-    /**
-     * Computes an hash for a TOM message
-     *
-     * @param data Data from which to generate the hash
-     * @return Hash for the specified TOM message
-     */
-    public final byte[] computeHash(byte[] data) {
-        byte[] ret = null;
-        hashLock.lock();
-        ret = md.digest(data);
-        hashLock.unlock();
+	private RequestVerifier verifier;
 
-        return ret;
-    }
+	private Synchronizer syncher;
 
-    public SignedObject sign(Serializable obj) {
-        try {
-            return new SignedObject(obj, privateKey, engine);
-        } catch (Exception e) {
-            logger.error("Failed to sign object",e);
-            return null;
-        }
-    }
+	/**
+	 * Creates a new instance of TOMulticastLayer
+	 *
+	 * @param manager    Execution manager
+	 * @param receiver   Object that receives requests from clients
+	 * @param recoverer
+	 * @param a          Acceptor role of the PaW algorithm
+	 * @param cs         Communication system between replicas
+	 * @param controller Reconfiguration Manager
+	 * @param verifier
+	 */
+	public TOMLayer(ExecutionManager manager, ServiceReplica receiver, Recoverable recoverer, Acceptor a,
+			ServerCommunicationSystem cs, ServerViewController controller, RequestVerifier verifier) {
 
-    /**
-     * Verifies the signature of a signed object
-     *
-     * @param so Signed object to be verified
-     * @param sender Replica id that supposedly signed this object
-     * @return True if the signature is valid, false otherwise
-     */
-    public boolean verifySignature(SignedObject so, int sender) {
-        try {
-            return so.verify(publicKey.get(sender), engine);
-        } catch (Exception e) {
-            logger.error("Failed to verify object signature",e);
-        }
-        return false;
-    }
+		super("TOM Layer");
 
-    /**
-     * Retrieve Communication system between replicas
-     *
-     * @return Communication system between replicas
-     */
-    public ServerCommunicationSystem getCommunication() {
-        return this.communication;
-    }
+		this.execManager = manager;
+		this.acceptor = a;
+		this.communication = cs;
+		this.controller = controller;
 
-    public void imAmTheLeader() {
-        leaderLock.lock();
-        iAmLeader.signal();
-        leaderLock.unlock();
-    }
+		/* Tulio Ribeiro */
+		this.privateKey = this.controller.getStaticConf().getPrivateKey();
+		this.publicKey = new HashMap<>();
+		int[] targets = this.controller.getCurrentViewAcceptors();
+		for (int i = 0; i < targets.length; i++) {
+			publicKey.put(targets[i], controller.getStaticConf().getPublicKey(targets[i]));
+		}
 
-    /**
-     * Sets which consensus was the last to be executed
-     *
-     * @param last ID of the consensus which was last to be executed
-     */
-    public void setLastExec(int last) {
-        this.lastExecuted = last;
-    }
+		// Use a many as the number of available cores.
+		// this.verifierExecutor =
+		// Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
+		this.verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-    /**
-     * Gets the ID of the consensus which was established as the last executed
-     *
-     * @return ID of the consensus which was established as the last executed
-     */
-    public int getLastExec() {
-        return this.lastExecuted;
-    }
+		// do not create a timer manager if the timeout is 0
+		if (this.controller.getStaticConf().getRequestTimeout() == 0) {
+			this.requestsTimer = null;
+		} else {
+			this.requestsTimer = new RequestsTimer(this, communication, this.controller); // Create requests timers
+																							// manager (a thread)
+		}
 
-    /**
-     * Sets which consensus is being executed at the moment
-     *
-     * @param inEx ID of the consensus being executed at the moment
-     */
-    public void setInExec(int inEx) {
-        proposeLock.lock();
-        logger.debug("Modifying inExec from " + this.inExecution + " to " + inEx);
-        this.inExecution = inEx;
-        if (inEx == -1 && !isRetrievingState()) {
-            canPropose.signalAll();
-        }
-        proposeLock.unlock();
-    }
+		try {
+			this.md = TOMUtil.getHashEngine();
+		} catch (Exception e) {
+			logger.error("Failed to get message digest engine", e);
+		}
 
-    /**
-     * This method blocks until the PaW algorithm is finished
-     */
-    public void waitForPaxosToFinish() {
-        proposeLock.lock();
-        canPropose.awaitUninterruptibly();
-        proposeLock.unlock();
-    }
+		try {
+			this.engine = TOMUtil.getSigEngine();
+		} catch (Exception e) {
+			logger.error("Failed to get signature engine", e);
+		}
 
-    /**
-     * Gets the ID of the consensus currently beign executed
-     *
-     * @return ID of the consensus currently beign executed (if no consensus ir
-     * executing, -1 is returned)
-     */
-    public int getInExec() {
-        return this.inExecution;
-    }
+		this.dt = new DeliveryThread(this, receiver, recoverer, this.controller); // Create delivery thread
+		this.dt.start();
+		this.stateManager = recoverer.getStateManager();
+		stateManager.init(this, dt);
 
-    /**
-     * This method is invoked by the communication system to deliver a request.
-     * It assumes that the communication system delivers the message in FIFO
-     * order.
-     *
-     * @param msg The request being received
-     * @throws InterruptedException 
-     */
-    @Override
-    public void requestReceived(TOMMessage msg) {
-               
-        if (!doWork) return;
-        
-        // check if this request is valid and add it to the client' pending requests list
-        boolean readOnly = (msg.getReqType() == TOMMessageType.UNORDERED_REQUEST
-                		 || msg.getReqType() == TOMMessageType.UNORDERED_HASHED_REQUEST);
-        
-        if (readOnly) {
-            logger.debug("Received read-only TOMMessage from client " + msg.getSender() + " with sequence number " + msg.getSequence() + " for session " + msg.getSession());
-            	dt.deliverUnordered(msg, syncher.getLCManager().getLastReg());
-            
-        } else {
-            logger.debug("Received TOMMessage from client " + msg.getSender() + " with sequence number " + msg.getSequence() + " for session " + msg.getSession());
+		this.verifier = (verifier != null) ? verifier : ((request) -> true); // By default, never validate requests
 
-            
-            if (clientsManager.requestReceived(msg, true, communication)) {
-            	haveMessages();
-            } else {
-                logger.warn("The received TOMMessage {} was discarded. Sender:{}, Sequence:{}", 
-                		msg, msg.getSender(), msg.getSequence() );
-            }
-        }
-    }
+		// I have a verifier, now create clients manager
+		this.clientsManager = new ClientsManager(this.controller, requestsTimer, this.verifier);
 
-    /**
-     * Creates a value to be proposed to the acceptors. Invoked if this replica
-     * is the leader
-     *
-     * @param dec Object that will eventually hold the decided value
-     * @return A value to be proposed to the acceptors
-     */
-    public byte[] createPropose(Decision dec) {
-        // Retrieve a set of pending requests from the clients manager
-    	
-        RequestList pendingRequests = clientsManager.getPendingRequests();
+		this.syncher = new Synchronizer(this); // create synchronizer
+	}
 
-        int numberOfMessages = pendingRequests.size(); // number of messages retrieved
-        int numberOfNonces = this.controller.getStaticConf().getNumberOfNonces(); // amount of nonces to be generated
+	/**
+	 * Computes an hash for a TOM message
+	 *
+	 * @param data Data from which to generate the hash
+	 * @return Hash for the specified TOM message
+	 */
+	public final byte[] computeHash(byte[] data) {
+		byte[] ret = null;
+		hashLock.lock();
+		ret = md.digest(data);
+		hashLock.unlock();
 
-        //for benchmarking
-        if (dec.getConsensusId() > -1) { // if this is from the leader change, it does not matter
-            dec.firstMessageProposed = pendingRequests.getFirst();
-            dec.firstMessageProposed.consensusStartTime = System.nanoTime();
-        }
-        dec.batchSize = numberOfMessages;
+		return ret;
+	}
 
-        logger.debug("Creating a PROPOSE with " + numberOfMessages + " msgs");
+	public SignedObject sign(Serializable obj) {
+		try {
+			return new SignedObject(obj, privateKey, engine);
+		} catch (Exception e) {
+			logger.error("Failed to sign object", e);
+			return null;
+		}
+	}
 
-        return bb.makeBatch(pendingRequests, numberOfNonces, System.currentTimeMillis(), controller.getStaticConf().getUseSignatures());
-    }
+	/**
+	 * Verifies the signature of a signed object
+	 *
+	 * @param so     Signed object to be verified
+	 * @param sender Replica id that supposedly signed this object
+	 * @return True if the signature is valid, false otherwise
+	 */
+	public boolean verifySignature(SignedObject so, int sender) {
+		try {
+			return so.verify(publicKey.get(sender), engine);
+		} catch (Exception e) {
+			logger.error("Failed to verify object signature", e);
+		}
+		return false;
+	}
 
-    /**
-     * This is the main code for this thread. It basically waits until this
-     * replica becomes the leader, and when so, proposes a value to the other
-     * acceptors
-     */
-    @Override
-    public void run() {
-        logger.debug("Running."); // TODO: can't this be outside of the loop?
-        while (doWork) {
+	/**
+	 * Retrieve Communication system between replicas
+	 *
+	 * @return Communication system between replicas
+	 */
+	public ServerCommunicationSystem getCommunication() {
+		return this.communication;
+	}
 
-            // blocks until this replica learns to be the leader for the current epoch of the current consensus
-            leaderLock.lock();
-            logger.debug("Next leader for CID=" + (getLastExec() + 1) + ": " + execManager.getCurrentLeader());
+	public void imAmTheLeader() {
+		leaderLock.lock();
+		iAmLeader.signal();
+		leaderLock.unlock();
+	}
 
-            //******* EDUARDO BEGIN **************//
-            if (execManager.getCurrentLeader() != this.controller.getStaticConf().getProcessId()) {
-                iAmLeader.awaitUninterruptibly();
-                //waitForPaxosToFinish();
-            }
-            //******* EDUARDO END **************//
-            leaderLock.unlock();
-            
-            if (!doWork) break;
+	/**
+	 * Sets which consensus was the last to be executed
+	 *
+	 * @param last ID of the consensus which was last to be executed
+	 */
+	public void setLastExec(int last) {
+		this.lastExecuted = last;
+	}
 
-            // blocks until the current consensus finishes
-            proposeLock.lock();
+	/**
+	 * Gets the ID of the consensus which was established as the last executed
+	 *
+	 * @return ID of the consensus which was established as the last executed
+	 */
+	public int getLastExec() {
+		return this.lastExecuted;
+	}
 
-            if (getInExec() != -1) { //there is some consensus running
-                logger.debug("Waiting for consensus " + getInExec() + " termination.");
-                canPropose.awaitUninterruptibly();
-            }
-            proposeLock.unlock();
-            
-            if (!doWork) break;
+	/**
+	 * Sets which consensus is being executed at the moment
+	 *
+	 * @param inEx ID of the consensus being executed at the moment
+	 */
+	public void setInExec(int inEx) {
+		proposeLock.lock();
+		logger.debug("Modifying inExec from " + this.inExecution + " to " + inEx);
+		this.inExecution = inEx;
+		if (inEx == -1 && !isRetrievingState()) {
+			canPropose.signalAll();
+		}
+		proposeLock.unlock();
+	}
 
-            logger.debug("I'm the leader.");
+	/**
+	 * This method blocks until the PaW algorithm is finished
+	 */
+	public void waitForPaxosToFinish() {
+		proposeLock.lock();
+		canPropose.awaitUninterruptibly();
+		proposeLock.unlock();
+	}
 
-            // blocks until there are requests to be processed/ordered
-            messagesLock.lock();
-            if (!clientsManager.havePendingRequests()) {
-                haveMessages.awaitUninterruptibly();
-            }
-            messagesLock.unlock();
-            
-            if (!doWork) break;
-            
-            logger.debug("There are messages to be ordered. I will propose.");
+	/**
+	 * Gets the ID of the consensus currently beign executed
+	 *
+	 * @return ID of the consensus currently beign executed (if no consensus ir
+	 *         executing, -1 is returned)
+	 */
+	public int getInExec() {
+		return this.inExecution;
+	}
 
-            if ((execManager.getCurrentLeader() == this.controller.getStaticConf().getProcessId()) && //I'm the leader
-                    (clientsManager.havePendingRequests()) && //there are messages to be ordered
-                    (getInExec() == -1)) { //there is no consensus in execution
+	/**
+	 * This method is invoked by the communication system to deliver a request. It
+	 * assumes that the communication system delivers the message in FIFO order.
+	 *
+	 * @param msg The request being received
+	 * @throws InterruptedException
+	 */
+	@Override
+	public void requestReceived(TOMMessage msg) {
 
-                // Sets the current consensus
-                int execId = getLastExec() + 1;
-                setInExec(execId);
-                
-                Decision dec = execManager.getConsensus(execId).getDecision();
+		if (!doWork)
+			return;
 
-                // Bypass protocol if service is not replicated
-                if (controller.getCurrentViewN() == 1) {
+		// check if this request is valid and add it to the client' pending requests
+		// list
+		boolean readOnly = (msg.getReqType() == TOMMessageType.UNORDERED_REQUEST
+				|| msg.getReqType() == TOMMessageType.UNORDERED_HASHED_REQUEST);
 
-                    logger.debug("Only one replica, bypassing consensus.");
-                    
-                    byte[] value = createPropose(dec);
+		if (readOnly) {
+			logger.debug("Received read-only TOMMessage from client " + msg.getSender() + " with sequence number "
+					+ msg.getSequence() + " for session " + msg.getSession());
+			dt.deliverUnordered(msg, syncher.getLCManager().getLastReg());
 
-                    Consensus consensus = execManager.getConsensus(dec.getConsensusId());
-                    Epoch epoch = consensus.getEpoch(0, controller);
-                    epoch.propValue = value;
-                    epoch.propValueHash = computeHash(value);
-                    epoch.getConsensus().addWritten(value);
-                    epoch.deserializedPropValue = checkProposedValue(value, true);
-                    epoch.getConsensus().getDecision().firstMessageProposed = epoch.deserializedPropValue[0];
-                    dec.setDecisionEpoch(epoch);
+		} else {
+			logger.debug("Received TOMMessage from client " + msg.getSender() + " with sequence number "
+					+ msg.getSequence() + " for session " + msg.getSession());
 
-                    dt.delivery(dec);
-                    continue;
+			if (clientsManager.requestReceived(msg, true, communication)) {
+				haveMessages();
+			} else {
+				logger.warn("The received TOMMessage {} was discarded. Sender:{}, Sequence:{}", msg, msg.getSender(),
+						msg.getSequence());
+			}
+		}
+	}
 
-                }
-                execManager.getProposer().startConsensus(execId, createPropose(dec));
-            }
-        }
-        logger.info("TOMLayer stopped.");
-    }
+	/**
+	 * Creates a value to be proposed to the acceptors. Invoked if this replica is
+	 * the leader
+	 *
+	 * @param dec Object that will eventually hold the decided value
+	 * @return A value to be proposed to the acceptors
+	 */
+	public byte[] createPropose(Decision dec) {
+		// Retrieve a set of pending requests from the clients manager
 
-    /**
-     * Called by the current consensus instance, to notify the TOM layer that
-     * a value was decided
-     *
-     * @param dec The decision of the consensus
-     */
-    public void decided(Decision dec) {
-        
-        	dec.setRegency(syncher.getLCManager().getLastReg());
-        
-        dec.setLeader(execManager.getCurrentLeader());
-        
-        this.dt.delivery(dec); // Sends the decision to the delivery thread
-    }
+		RequestList pendingRequests = clientsManager.getPendingRequests();
 
-    /**
-     * Verify if the value being proposed for a epoch is valid. It verifies the
-     * client signature of all batch requests.
-     *
-     * TODO: verify timestamps and nonces
-     *
-     * @param proposedValue the value being proposed
-     * @param addToClientManager add the requests to the client manager
-     * @return Valid messages contained in the proposed value
-     */
-    public TOMMessage[] checkProposedValue(byte[] proposedValue, boolean addToClientManager) {
-    
-        try{
-            
-            logger.debug("Checking proposed value");
+		int numberOfMessages = pendingRequests.size(); // number of messages retrieved
+		int numberOfNonces = this.controller.getStaticConf().getNumberOfNonces(); // amount of nonces to be generated
 
-            BatchReader batchReader = new BatchReader(proposedValue, this.controller.getStaticConf().getUseSignatures());
+		// for benchmarking
+		if (dec.getConsensusId() > -1) { // if this is from the leader change, it does not matter
+			dec.firstMessageProposed = pendingRequests.getFirst();
+			dec.firstMessageProposed.consensusStartTime = System.nanoTime();
+		}
+		dec.batchSize = numberOfMessages;
 
-            TOMMessage[] requests = null;
+		logger.debug("Creating a PROPOSE with " + numberOfMessages + " msgs");
 
-            //deserialize the message
-            //TODO: verify Timestamps and Nonces
-            requests = batchReader.deserialiseRequests(this.controller);
-            
-            
-            if (addToClientManager) {
+		return bb.makeBatch(pendingRequests, numberOfNonces, System.currentTimeMillis(),
+				controller.getStaticConf().getUseSignatures());
+	}
 
-                //use parallelization to validate the request
-                final CountDownLatch latch = new CountDownLatch(requests.length);
+	/**
+	 * This is the main code for this thread. It basically waits until this replica
+	 * becomes the leader, and when so, proposes a value to the other acceptors
+	 */
+	@Override
+	public void run() {
+		logger.debug("Running."); // TODO: can't this be outside of the loop?
+		while (doWork) {
 
-               for (TOMMessage request : requests) {
-            	   request.isValid = true;
-                	verifierExecutor.submit(() -> {
-                        try {
-                            
-                            //notifies the client manager that this request was received and get
-                            //the result of its validation
-                           	request.isValid = clientsManager.requestReceived(request, false);
-                            
-                            if (Thread.holdsLock(clientsManager.getClientsLock())) clientsManager.getClientsLock().unlock();
-                            
-                        }
-                        catch (Exception e) {
-                            
-                            logger.error("Error while validating requests", e);
-                            if (Thread.holdsLock(clientsManager.getClientsLock())) clientsManager.getClientsLock().unlock();
-                            
-                        }
-                        
-                        latch.countDown();
-                    });
-                }
-                
-                latch.await();
-                
-                for (TOMMessage request : requests) {
-                    
-                    if (request.isValid == false) {
-                        
-                        logger.warn("Request {} could not be added to the pending messages queue of its respective client", request);
-                        return null;
-                    }
-                }
-            }
-            
-            logger.debug("Successfully deserialized batch");
+			// blocks until this replica learns to be the leader for the current epoch of
+			// the current consensus
+			leaderLock.lock();
+			logger.debug("Next leader for CID=" + (getLastExec() + 1) + ": " + execManager.getCurrentLeader());
 
-            return requests;
-        
-        } catch (Exception e) {
-            logger.error("Failed to check proposed value",e);
-            if (Thread.holdsLock(clientsManager.getClientsLock())) clientsManager.getClientsLock().unlock();
+			// ******* EDUARDO BEGIN **************//
+			if (execManager.getCurrentLeader() != this.controller.getStaticConf().getProcessId()) {
+				iAmLeader.awaitUninterruptibly();
+				// waitForPaxosToFinish();
+			}
+			// ******* EDUARDO END **************//
+			leaderLock.unlock();
 
-            return null;
-        }
-    }
+			if (!doWork)
+				break;
 
-    public void forwardRequestToLeader(TOMMessage request) {
-        int leaderId = execManager.getCurrentLeader();
-        if (this.controller.isCurrentViewMember(leaderId)) {
-            logger.debug("Forwarding " + request + " to " + leaderId);
-            communication.send(new int[]{leaderId},
-                    new ForwardedMessage(this.controller.getStaticConf().getProcessId(), request));
-        }
-    }
+			// blocks until the current consensus finishes
+			proposeLock.lock();
 
-    public boolean isRetrievingState() {
-        //lockTimer.lock();
-        boolean result = stateManager != null && stateManager.isRetrievingState();
-        //lockTimer.unlock();
+			if (getInExec() != -1) { // there is some consensus running
+				logger.debug("Waiting for consensus " + getInExec() + " termination.");
+				canPropose.awaitUninterruptibly();
+			}
+			proposeLock.unlock();
 
-        return result;
-    }
+			if (!doWork)
+				break;
 
-    public boolean isChangingLeader() {
-        
-        return !requestsTimer.isEnabled();
+			logger.debug("I'm the leader.");
 
-    }
-    
-    public void setNoExec() {
-        logger.debug("Modifying inExec from " + this.inExecution + " to " + -1);
+			// blocks until there are requests to be processed/ordered
+			messagesLock.lock();
+			if (!clientsManager.havePendingRequests()) {
+				haveMessages.awaitUninterruptibly();
+			}
+			messagesLock.unlock();
 
-        proposeLock.lock();
-        this.inExecution = -1;
-        //ot.addUpdate();
-        canPropose.signalAll();
-        proposeLock.unlock();
-    }
+			if (!doWork)
+				break;
 
-    public void processOutOfContext() {
-        for (int nextConsensus = getLastExec() + 1;
-                execManager.receivedOutOfContextPropose(nextConsensus);
-                nextConsensus = getLastExec() + 1) {
-            execManager.processOutOfContextPropose(execManager.getConsensus(nextConsensus));
-        }
-    }
+			logger.debug("There are messages to be ordered. I will propose.");
 
-    public StateManager getStateManager() {
-        return stateManager;
-    }
+			if ((execManager.getCurrentLeader() == this.controller.getStaticConf().getProcessId()) && // I'm the leader
+					(clientsManager.havePendingRequests()) && // there are messages to be ordered
+					(getInExec() == -1)) { // there is no consensus in execution
 
-    public Synchronizer getSynchronizer() {
-        return syncher;
-    }
-    
-    private void haveMessages() {
-        messagesLock.lock();
-        haveMessages.signal();
-        messagesLock.unlock();
-    }
-    
-    public DeliveryThread getDeliveryThread() {
-        return dt;
-    }
-    
-    public void shutdown() {
-        this.doWork = false;
-        imAmTheLeader();
-        haveMessages();
-        setNoExec();
+				// Sets the current consensus
+				int execId = getLastExec() + 1;
+				setInExec(execId);
 
-        if (this.requestsTimer != null) this.requestsTimer.shutdown();
-        if (this.clientsManager != null) {
-            this.clientsManager.clear();
-            this.clientsManager.getPendingRequests().clear();
-        }
-        if (this.dt != null) this.dt.shutdown();
-        if (this.communication != null) this.communication.shutdown();
- 
-    }
+				Decision dec = execManager.getConsensus(execId).getDecision();
+
+				// Bypass protocol if service is not replicated
+				if (controller.getCurrentViewN() == 1) {
+
+					logger.debug("Only one replica, bypassing consensus.");
+
+					byte[] value = createPropose(dec);
+
+					Consensus consensus = execManager.getConsensus(dec.getConsensusId());
+					Epoch epoch = consensus.getEpoch(0, controller);
+					epoch.propValue = value;
+					epoch.propValueHash = computeHash(value);
+					epoch.getConsensus().addWritten(value);
+					epoch.deserializedPropValue = checkProposedValue(value, true);
+					epoch.getConsensus().getDecision().firstMessageProposed = epoch.deserializedPropValue[0];
+					dec.setDecisionEpoch(epoch);
+
+					dt.delivery(dec);
+					continue;
+
+				}
+				execManager.getProposer().startConsensus(execId, createPropose(dec));
+			}
+		}
+		logger.info("TOMLayer stopped.");
+	}
+
+	/**
+	 * Called by the current consensus instance, to notify the TOM layer that a
+	 * value was decided
+	 *
+	 * @param dec The decision of the consensus
+	 */
+	public void decided(Decision dec) {
+
+		dec.setRegency(syncher.getLCManager().getLastReg());
+
+		dec.setLeader(execManager.getCurrentLeader());
+
+		this.dt.delivery(dec); // Sends the decision to the delivery thread
+	}
+
+	/**
+	 * Verify if the value being proposed for a epoch is valid. It verifies the
+	 * client signature of all batch requests.
+	 *
+	 * TODO: verify timestamps and nonces
+	 *
+	 * @param proposedValue      the value being proposed
+	 * @param addToClientManager add the requests to the client manager
+	 * @return Valid messages contained in the proposed value
+	 */
+	public TOMMessage[] checkProposedValue(byte[] proposedValue, boolean addToClientManager) {
+
+		try {
+
+			logger.debug("Checking proposed value");
+
+			BatchReader batchReader = new BatchReader(proposedValue,
+					this.controller.getStaticConf().getUseSignatures());
+
+			TOMMessage[] requests = null;
+
+			// deserialize the message
+			// TODO: verify Timestamps and Nonces
+			requests = batchReader.deserialiseRequests(this.controller);
+
+			if (addToClientManager) {
+
+				// use parallelization to validate the request
+				final CountDownLatch latch = new CountDownLatch(requests.length);
+
+				for (TOMMessage request : requests) {
+					request.isValid = true;
+					verifierExecutor.submit(() -> {
+						try {
+
+							// notifies the client manager that this request was received and get
+							// the result of its validation
+							request.isValid = clientsManager.requestReceived(request, false);
+
+							if (Thread.holdsLock(clientsManager.getClientsLock()))
+								clientsManager.getClientsLock().unlock();
+
+						} catch (Exception e) {
+
+							logger.error("Error while validating requests", e);
+							if (Thread.holdsLock(clientsManager.getClientsLock()))
+								clientsManager.getClientsLock().unlock();
+
+						}
+
+						latch.countDown();
+					});
+				}
+
+				latch.await();
+
+				for (TOMMessage request : requests) {
+
+					if (request.isValid == false) {
+
+						logger.warn(
+								"Request {} could not be added to the pending messages queue of its respective client",
+								request);
+						return null;
+					}
+				}
+			}
+
+			logger.debug("Successfully deserialized batch");
+
+			return requests;
+
+		} catch (Exception e) {
+			logger.error("Failed to check proposed value", e);
+			if (Thread.holdsLock(clientsManager.getClientsLock()))
+				clientsManager.getClientsLock().unlock();
+
+			return null;
+		}
+	}
+
+	public void forwardRequestToLeader(TOMMessage request) {
+		int leaderId = execManager.getCurrentLeader();
+		if (this.controller.isCurrentViewMember(leaderId)) {
+			logger.debug("Forwarding " + request + " to " + leaderId);
+			communication.send(new int[] { leaderId },
+					new ForwardedMessage(this.controller.getStaticConf().getProcessId(), request));
+		}
+	}
+
+	public boolean isRetrievingState() {
+		// lockTimer.lock();
+		boolean result = stateManager != null && stateManager.isRetrievingState();
+		// lockTimer.unlock();
+
+		return result;
+	}
+
+	public boolean isChangingLeader() {
+
+		return !requestsTimer.isEnabled();
+
+	}
+
+	public void setNoExec() {
+		logger.debug("Modifying inExec from " + this.inExecution + " to " + -1);
+
+		proposeLock.lock();
+		this.inExecution = -1;
+		// ot.addUpdate();
+		canPropose.signalAll();
+		proposeLock.unlock();
+	}
+
+	public void processOutOfContext() {
+		for (int nextConsensus = getLastExec() + 1; execManager
+				.receivedOutOfContextPropose(nextConsensus); nextConsensus = getLastExec() + 1) {
+			execManager.processOutOfContextPropose(execManager.getConsensus(nextConsensus));
+		}
+	}
+
+	public StateManager getStateManager() {
+		return stateManager;
+	}
+
+	public Synchronizer getSynchronizer() {
+		return syncher;
+	}
+
+	private void haveMessages() {
+		messagesLock.lock();
+		haveMessages.signal();
+		messagesLock.unlock();
+	}
+
+	public DeliveryThread getDeliveryThread() {
+		return dt;
+	}
+
+	public void shutdown() {
+		this.doWork = false;
+		imAmTheLeader();
+		haveMessages();
+		setNoExec();
+
+		if (this.requestsTimer != null)
+			this.requestsTimer.shutdown();
+		if (this.clientsManager != null) {
+			this.clientsManager.clear();
+			this.clientsManager.getPendingRequests().clear();
+		}
+		if (this.dt != null)
+			this.dt.shutdown();
+		if (this.communication != null)
+			this.communication.shutdown();
+
+	}
 
 }

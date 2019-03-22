@@ -81,7 +81,7 @@ public final class DeliveryThread extends Thread {
      * @param dec Decision established from the consensus
      */
     public void delivery(Decision dec) {
-        
+        logger.debug("");
         try {
             decidedLock.lock();
             decided.put(dec);
@@ -94,7 +94,8 @@ public final class DeliveryThread extends Thread {
             decidedLock.unlock();
             logger.debug("Consensus " + dec.getConsensusId() + " finished. Decided size=" + decided.size());
         } catch (Exception e) {
-            logger.error("Could not insert decision into decided queue",e);
+            logger.error("Could not insert decision into decided queue.");
+            		e.printStackTrace();
         }
 
 		hadReconfig = containsReconfig(dec);
@@ -105,8 +106,8 @@ public final class DeliveryThread extends Thread {
 			tomLayer.setLastExec(dec.getConsensusId());
 			// define that end of this execution
 			tomLayer.setInExec(-1);
-		} // else if (tomLayer.controller.getStaticConf().getProcessId() == 0)
-			// System.exit(0);
+		} else if (tomLayer.controller.getStaticConf().getProcessId() == 0)
+			 System.exit(0);
 
 	}
 
@@ -116,7 +117,8 @@ public final class DeliveryThread extends Thread {
         for (TOMMessage decidedMessage : decidedMessages) {
             if (decidedMessage.getReqType() == TOMMessageType.RECONFIG
                     && decidedMessage.getViewID() == controller.getCurrentViewId()) {
-                return true;
+                logger.debug("Found a reconfig message.");
+            	return true;
             }
         }
         return false;

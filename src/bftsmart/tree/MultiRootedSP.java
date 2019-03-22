@@ -77,6 +77,7 @@ public class MultiRootedSP {
 		this.viewChildren = new HashMap<>();
 		this.viewParent = new HashMap<>();
 		this.viewUnexplored = new HashMap<>();
+		this.viewFinished = new HashMap<>();
 		
 		this.currentLeader = leader;
 
@@ -125,12 +126,17 @@ public class MultiRootedSP {
 			int toSend = this.viewUnexplored.get(viewTag).poll();
 			logger.trace("Sending M message, view:{}, to:{}", viewTag, toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
-		} else {
-			if (this.viewParent.get(viewTag) != viewTag) {
+		} else if (this.viewParent.get(viewTag) != viewTag){
+			 
 				TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.PARENT, viewTag);
 				commS.send(new int[] { this.viewParent.get(viewTag) }, signMessage(tm));
 				
 				receivedFinished(new TreeMessage(replicaId, TreeOperationType.FINISHED, viewTag));
+			
+		}else {
+			this.viewFinished.put(viewTag, true);
+			if(!this.viewFinished.containsValue(false)) {
+				this.globalFinish = true;
 			}
 		}
 		lock.unlock();
@@ -161,7 +167,7 @@ public class MultiRootedSP {
 			receivedParent(msg);
 			break;
 		case FINISHED:
-			receivedParent(msg);
+			receivedFinished(msg);
 			break;
 		case RECONFIG:
 			// shall clean the data structures and init the protocol, is just this?
@@ -213,7 +219,7 @@ public class MultiRootedSP {
 	}
 
 	private void receivedParent(TreeMessage msg) {
-		System.out.println("Adding " + msg.getSender() + " as a child.");
+		logger.debug("Adding " + msg.getSender() + " as a child.");
 		lock.lock();
 		if (!this.viewChildren.get(msg.getViewTag()).contains(msg.getSender()))
 			this.viewChildren.get(msg.getViewTag()).add(msg.getSender());
@@ -223,14 +229,21 @@ public class MultiRootedSP {
 
 	private void receivedFinished(TreeMessage msg) {
 		if (!this.viewFinished.get(msg.getViewTag())) {
-			System.out.println("Finished spanning tree, SpanningTree:\n" + toString());
+			//logger.debug("Finished spanning tree, SpanningTree:\n" + toString());
 			this.viewFinished.put(msg.getViewTag(), true);
-			if (msg.getViewTag() != this.viewParent.get(msg.getViewTag())) {
-				TreeMessage tm = new TreeMessage(msg.getViewTag(), 
+			
+			TreeMessage tm = new TreeMessage(msg.getSender(), 
+					TreeOperationType.FINISHED, msg.getViewTag());
+			commS.send(SVController.getCurrentViewAcceptors(), signMessage(tm));
+			/*if (msg.getViewTag() != this.viewParent.get(msg.getViewTag())) {
+				TreeMessage tm = new TreeMessage(msg.getSender(), 
 						TreeOperationType.FINISHED, msg.getViewTag());
-				//commS.send(SVController.getCurrentViewAcceptors(), signMessage(tm));
-				commS.send(new int[] {this.viewParent.get(msg.getViewTag())}, signMessage(tm));
-			}
+				commS.send(SVController.getCurrentViewAcceptors(), signMessage(tm));
+				//commS.send(new int[] {this.viewParent.get(msg.getViewTag())}, signMessage(tm));
+				this.viewFinished.put(msg.getViewTag(), true);
+
+			}*/
+			
 			if(!this.viewFinished.containsValue(false)) {
 				this.globalFinish = true;
 			}
@@ -267,8 +280,8 @@ public class MultiRootedSP {
 	}
 
 	public boolean getFinish() {
-		return false;
-		//return this.finish;
+		//return false;
+		return this.globalFinish;
 	}
 	
 	public void forwardTreeMessage(ForwardTree msg) {
@@ -277,11 +290,11 @@ public class MultiRootedSP {
 		switch (msg.getDirection()) {
 		case UP:
 			if(this.viewParent.get(msg.getViewTag()) != msg.getViewTag()) {
-				logger.info("Forwarding Tree message UP, "
+				logger.info("Forwarding Tree message UP, view:{}, "
 						+ "fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
-						new Object[] {msg.getSender(), this.viewParent.get(msg.getViewTag()), cm.getSender(), cm.getType()}
+						new Object[] {msg.getViewTag(), msg.getSender(), this.viewParent.get(msg.getViewTag()), cm.getSender(), cm.getType()}
 						);	
-				ForwardTree fwdTree = new ForwardTree(msg.getViewTag(), cm, Direction.UP, msg.getViewTag()); 
+				ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.UP, msg.getViewTag()); 
 				commS.send(new int[] { this.viewParent.get(msg.getViewTag()) }, fwdTree);
 			}
 			break;
@@ -290,12 +303,13 @@ public class MultiRootedSP {
 				logger.debug("I have no children.");
 				return;
 			}
-			ForwardTree fwdTree = new ForwardTree(msg.getViewTag(), cm, Direction.DOWN,msg.getViewTag());
+			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN, msg.getViewTag());
 			Iterator<Integer> it = this.viewChildren.get(msg.getViewTag()).iterator();
 			while (it.hasNext()) {
 				Integer child = (Integer) it.next();
-				logger.info("Forwarding Tree message DOWN, fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
-						new Object[] {fwdTree.getSender(), child, cm.getSender(), cm.getType()}
+				logger.info("### Forwarding Tree message DOWN, view:{}, "
+						+ "fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
+						new Object[] {msg.getViewTag(), fwdTree.getSender(), child, cm.getSender(), cm.getType()}
 						);	
 				commS.send(new int[] { child }, fwdTree);
 			}
@@ -313,7 +327,7 @@ public class MultiRootedSP {
 	@Override
 	public String toString() {
 		
-		String appended = "All Views: ";
+		String appended = "All Views, Global Finish: " + this.globalFinish;
 		
 		Iterator<Integer> it = this.viewChildren.keySet().iterator();
 		while (it.hasNext()) {
@@ -322,7 +336,7 @@ public class MultiRootedSP {
 			appended += "\n\t\tChildren: " + this.viewChildren.get(view);
 			appended += "\n\t\tParent: " + this.viewParent.get(view);
 			appended += "\n\t\tUnexplored: " + this.viewUnexplored.get(view);
-			appended += "\n\t\tGlobal Finish: " + this.globalFinish;
+			appended += "\n\t\tLocal finish: " + this.viewFinished.get(view);
 			
 		}
 		return appended;

@@ -57,7 +57,7 @@ public enum TOMMessageType {
             case 6: return UNORDERED_HASHED_REQUEST;
             case 7: return TREE_MESSAGE;
             case 8: return REQUEST_LEADER;
-            default: return RECONFIG;
+            default: return REPLY;
         }            
     }
 }

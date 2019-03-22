@@ -16,6 +16,9 @@
  */
 package bftsmart.tom;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.security.Provider;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,8 +52,8 @@ import bftsmart.tom.util.KeyLoader;
 import bftsmart.tom.util.ShutdownHookThread;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.MultiRootedSP;
-import bftsmart.tree.TreeManager;
 import bftsmart.tree.messages.TreeMessage;
+import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
 /**
  * This class receives messages from DeliveryThread and manages the execution
@@ -373,8 +376,8 @@ public class ServiceReplica {
 								request.reply = new TOMMessage(replicaId, request.getSession(), request.getSequence(),
 										request.getOperationId(), response, SVController.getCurrentViewId(),
 										request.getReqType());
-								logger.debug("sending reply to " + request.getSender());
-								replier.manageReply(request, msgCtx);
+								logger.info("sending reply to " + request.getSender());
+								replier.manageReply(request);
 							} else { // this code should never be executed
 								throw new UnsupportedOperationException("Non-existent interface");
 							}
@@ -386,6 +389,20 @@ public class ServiceReplica {
 							logger.info("Received a TREE_MESSAGE, "
 										+ "from clientId: {}", request.getSender());
 
+							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
+									request.getReqType(), request.getSession(), request.getSequence(),
+									request.getOperationId(), request.getReplyServer(),
+									request.serializedMessageSignature, firstRequest.timestamp, request.numOfNonces,
+									request.seed, regencies[consensusCount], leaders[consensusCount],
+									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
+									false);
+							if (requestCount + 1 == requestsFromConsensus.length) {
+								msgCtxTree.setLastInBatch();
+							}
+							
+							if (this.recoverer != null)
+								this.recoverer.Op(msgCtxTree.getConsensusId(), request.getContent(), msgCtxTree);
+
 							/**
 							 * To create a static tree version, for test only purpose. There are two ways,
 							 * call the treatMessages(msg) with a TreeOperationType.STATIC_TREE. or, the
@@ -395,29 +412,56 @@ public class ServiceReplica {
 							//cs.getTreeManager().createStaticTree();
 
 							/**
-							 * To initialize the spanning-tree protocol
+							 * Tread messages coming from the spanning-tree protocol
 							 */
-							
 							TreeMessage tMsg = (TreeMessage) TOMUtil.getObject(request.getContent());
 							//cs.getMultiRootedSP().initProtocol(replicaId);
 							cs.getMultiRootedSP().treatMessages(tMsg);
 							
-							/**
-							 * Generate the answer to client. Does not imply the tree creation...
-							 */
-							MessageContext msgCtxTree = new MessageContext(request.getSender(), request.getViewID(),
-									request.getReqType(), request.getSession(), request.getSequence(),
-									request.getOperationId(), request.getReplyServer(),
-									request.serializedMessageSignature, firstRequest.timestamp, request.numOfNonces,
-									request.seed, regencies[consensusCount], leaders[consensusCount],
-									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
-									false);
-
-							request.reply = new TOMMessage(replicaId, request.getSession(), request.getSequence(),
-									request.getOperationId(), "1".toString().getBytes(),
-									SVController.getCurrentViewId(), request.getReqType());
-							replier.manageReply(request, msgCtxTree);
-							logger.info("Reply for TreeMessage (TREE_INIT) delivered...");
+							if(tMsg.getTreeOperationType().equals(TreeOperationType.STATUS)) {
+								request.reply = new TOMMessage(replicaId, 
+										request.getSession(), 
+										request.getSequence(),
+										request.getOperationId(), 
+										"OK".toString().getBytes(),
+										SVController.getCurrentViewId(), 
+										request.getReqType());
+								logger.info("Reply created, request:{}, request.reply:{}", 
+										request, request.reply);
+							}else {
+								ByteArrayOutputStream out = new ByteArrayOutputStream(4);
+					            try {
+									new DataOutputStream(out).writeChars("A");;
+								} catch (IOException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
+					            
+								request.reply = new TOMMessage(replicaId, 
+										request.getSession(), 
+										request.getSequence(),
+										request.getOperationId(), 
+										out.toByteArray(),
+										SVController.getCurrentViewId(), 
+										request.getReqType());
+								logger.info("Reply created, request:{}, request.reply:{}, Content:{}", 
+										request, request.reply, request.reply.getContent());
+							
+							}
+							logger.debug("Sending reply to " + request.getSender() + " TREE MESSAGE "
+									+ " via Replier");
+							replier.manageReply(request);
+							
+							/*if (SVController.getStaticConf().getNumRepliers() > 0) {
+								logger.debug(
+										"Sending reply to " + request.getSender() + " TREE_MESSAGE "
+												+ " via ReplyManager");
+								repMan.send(request);
+							} else {
+								logger.debug("Sending reply to " + request.getSender() + " TREE MESSAGE "
+										+ " via Replier");
+								replier.manageReply(request);
+							}*/
 
 							break;
 						default: // this code should never be executed
@@ -505,12 +549,13 @@ public class ServiceReplica {
 				if (SVController.getStaticConf().getNumRepliers() > 0) {
 					logger.debug(
 							"Sending reply to " + request.getSender() + " with sequence number " + request.getSequence()
-									+ " and operation ID " + request.getOperationId() + " via ReplyManager");
+									+ " and operation ID " + request.getOperationId()+ " via ReplyManager");
 					repMan.send(request);
 				} else {
 					logger.debug("Sending reply to " + request.getSender() + " with sequence number "
-							+ request.getSequence() + " and operation ID " + request.getOperationId());
-					replier.manageReply(request, msgContexts[index]);
+							+ request.getSequence() + " and operation ID " + request.getOperationId()
+							+ " via Replier");
+					replier.manageReply(request);
 				}
 			}
 			// DEBUG
@@ -537,8 +582,6 @@ public class ServiceReplica {
 		MessageFactory messageFactory = new MessageFactory(replicaId);
 
 		Acceptor acceptor = null;
-		Acceptor acceptorSSLTLS = null;
-
 		acceptor = new Acceptor(cs, messageFactory, SVController);
 		cs.setAcceptor(acceptor);
 
