@@ -300,10 +300,6 @@ public class MultiRootedSP {
 			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN, msg.getViewTag());
 			if (this.viewChildren.get(msg.getViewTag()).isEmpty()) {
 				logger.debug("I have no children.");
-				/*if(cm.getType() == 44783) {//send to mySelf accept messages.
-					logger.info("Sending ACCEPT message to myself.");
-					commS.send(new int[] { replicaId}, fwdTree);
-				}*/
 				return;
 			}
 			
