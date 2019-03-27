@@ -26,15 +26,12 @@ import bftsmart.communication.client.CommunicationSystemServerSide;
 import bftsmart.communication.client.CommunicationSystemServerSideFactory;
 import bftsmart.communication.client.RequestReceiver;
 import bftsmart.communication.server.ServersCommunicationLayer;
-import bftsmart.communication.server.ServersCommunicationLayer;
-import bftsmart.consensus.roles.Acceptor;
 import bftsmart.consensus.roles.Acceptor;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tree.MultiRootedSP;
-import bftsmart.tree.TreeManager;
 import bftsmart.tree.messages.TreeMessage;
 
 /**

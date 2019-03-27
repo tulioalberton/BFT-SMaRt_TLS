@@ -41,6 +41,7 @@ public class MessageHandler {
 	private Acceptor acceptor;
 	private TOMLayer tomLayer;
 	private MultiRootedSP mrSP;
+	private int replicaId;
 
 	public MessageHandler() {
 	}
@@ -48,149 +49,115 @@ public class MessageHandler {
 	public void setAcceptor(Acceptor acceptor) {
 		this.acceptor = acceptor;
 	}
-	
+
 	public MultiRootedSP getMultiRootedSP() {
 		return this.mrSP;
 	}
+
 	public void setMultiRootedSP(MultiRootedSP mrSP) {
 		this.mrSP = mrSP;
 	}
 
 	public void setTOMLayer(TOMLayer tomLayer) {
 		this.tomLayer = tomLayer;
+		replicaId = tomLayer.controller.getStaticConf().getProcessId();
 	}
 
 	@SuppressWarnings("unchecked")
 	protected void processData(SystemMessage sm) {
 		if (sm instanceof ConsensusMessage) {
 
-			int myId = tomLayer.controller.getStaticConf().getProcessId();
-
+			// As we have TLS, we do not need to care about MAC's.
 			ConsensusMessage consMsg = (ConsensusMessage) sm;
+			acceptor.deliver(consMsg);
 
-			// If using SSL / TLS, the MAC will be turned off (TLS protocols already does),
-			// so the else is unnecessary with SSL/TLS.
-			if (consMsg.authenticated
-					|| consMsg.getSender() == myId) {				
-				acceptor.deliver(consMsg);
+		} else if (sm instanceof ForwardTree) {
+			ForwardTree fwd = (ForwardTree) sm;
+
+			ConsensusMessage consMsg = fwd.getConsensusMessage();
+			logger.trace(
+					"### Catched ({}) a ForwardTreeMessage, view:{}, "
+							+ "" + "direction:{}, " + "originator:{}, "
+							+ "" + "from:{}, with a CM message: {}",
+					new Object[] {consMsg.getType(), fwd.getViewTag(), fwd.getDirection(), consMsg.getSender(),
+							fwd.getSender()});
+
+			// We deliver all forwarded messages...same as above.
+			acceptor.deliver(consMsg);
+
+			if(consMsg.getSender() != replicaId)
+				this.mrSP.forwardTreeMessage(fwd);
+
+		} else
+		/*** This is Joao's code, related to leader change */
+		if (sm instanceof LCMessage) {
+			LCMessage lcMsg = (LCMessage) sm;
+
+			String type = null;
+			switch (lcMsg.getType()) {
+
+			case TOMUtil.STOP:
+				type = "STOP";
+				break;
+			case TOMUtil.STOPDATA:
+				type = "STOPDATA";
+				break;
+			case TOMUtil.SYNC:
+				type = "SYNC";
+				break;
+			default:
+				type = "LOCAL";
+				break;
 			}
-			else {
-				logger.warn("Discarding unauthenticated message from " + sm.getSender());
+
+			if (lcMsg.getReg() != -1 && lcMsg.getSender() != -1)
+				logger.info("Received leader change message of type {} for regency {} from replica {}", type,
+						lcMsg.getReg(), lcMsg.getSender());
+			else
+				logger.debug("Received leader change message from myself");
+
+			if (lcMsg.TRIGGER_LC_LOCALLY)
+				tomLayer.requestsTimer.run_lc_protocol();
+			else
+				tomLayer.getSynchronizer().deliverTimeoutRequest(lcMsg);
+			/**************************************************************/
+
+		} else if (sm instanceof ForwardedMessage) {
+			TOMMessage request = ((ForwardedMessage) sm).getRequest();
+			tomLayer.requestReceived(request);
+
+			/** This is Joao's code, to handle state transfer */
+		} else if (sm instanceof SMMessage) {
+			SMMessage smsg = (SMMessage) sm;
+			switch (smsg.getType()) {
+			case TOMUtil.SM_REQUEST:
+				tomLayer.getStateManager().SMRequestDeliver(smsg, tomLayer.controller.getStaticConf().isBFT());
+				break;
+			case TOMUtil.SM_REPLY:
+				tomLayer.getStateManager().SMReplyDeliver(smsg, tomLayer.controller.getStaticConf().isBFT());
+				break;
+			case TOMUtil.SM_ASK_INITIAL:
+				tomLayer.getStateManager().currentConsensusIdAsked(smsg.getSender());
+				break;
+			case TOMUtil.SM_REPLY_INITIAL:
+				tomLayer.getStateManager().currentConsensusIdReceived(smsg);
+				break;
+			default:
+				tomLayer.getStateManager().stateTimeout();
+				break;
 			}
-
-		} else if(sm instanceof ForwardTree) {
-        	ForwardTree fwd = (ForwardTree) sm;
-        	
-        	ConsensusMessage consMsg = fwd.getConsensusMessage();        	
-        //	consMsg.authenticated = true;
-        	logger.info("### Catched a ForwardTreeMessage, "
-        			+ "direction:{}, "
-        			+ "originator:{}, "
-        			+ "from:{}, "
-        			+ "with a CM message: {}", 
-        			new Object[] {fwd.getDirection(), 
-        					consMsg.getSender(),
-        					fwd.getSender(), 
-        					consMsg.getType()		
-        			});
-        	
-        	int myId = tomLayer.controller.getStaticConf().getProcessId();
-			
-        	//if(consMsg.getSender() != myId)
-        		this.mrSP.forwardTreeMessage(fwd);
-        	
-        	/**
-        	 * TESTE ONLY
-        	 */
-        	
-			// If using SSL / TLS, the MAC will be turned off (TLS protocols already does),
-			// so the else is unnecessary with SSL/TLS.
-			if (consMsg.authenticated
-					|| consMsg.getSender() == myId) {
-				acceptor.deliver(consMsg);
-			}else {
-				logger.warn("Discarding unauthenticated message from:{},"
-						+ " ForwardedMessage... " , sm.getSender());
-			}
-        	/**
-        	 * END
-        	 */
-        	
-        	
-        } else {
-			if (sm.authenticated) {
-				/*** This is Joao's code, related to leader change */
-				if (sm instanceof LCMessage) {
-					LCMessage lcMsg = (LCMessage) sm;
-
-					String type = null;
-					switch (lcMsg.getType()) {
-
-					case TOMUtil.STOP:
-						type = "STOP";
-						break;
-					case TOMUtil.STOPDATA:
-						type = "STOPDATA";
-						break;
-					case TOMUtil.SYNC:
-						type = "SYNC";
-						break;
-					default:
-						type = "LOCAL";
-						break;
-					}
-
-					if (lcMsg.getReg() != -1 && lcMsg.getSender() != -1)
-						logger.info("Received leader change message of type {} for regency {} from replica {}", type,
-								lcMsg.getReg(), lcMsg.getSender());
-					else
-						logger.debug("Received leader change message from myself");
-
-					if (lcMsg.TRIGGER_LC_LOCALLY)
-						tomLayer.requestsTimer.run_lc_protocol();
-					else
-						tomLayer.getSynchronizer().deliverTimeoutRequest(lcMsg);
-					/**************************************************************/
-
-				} else if (sm instanceof ForwardedMessage) {
-					TOMMessage request = ((ForwardedMessage) sm).getRequest();
-					tomLayer.requestReceived(request);
-
-					/** This is Joao's code, to handle state transfer */
-				} else if (sm instanceof SMMessage) {
-					SMMessage smsg = (SMMessage) sm;
-					// System.out.println("(MessageHandler.processData) SM_MSG received: type " +
-					// smsg.getType() + ", regency " + smsg.getRegency() + ", (replica " +
-					// smsg.getSender() + ")");
-					switch (smsg.getType()) {
-					case TOMUtil.SM_REQUEST:
-						tomLayer.getStateManager().SMRequestDeliver(smsg, tomLayer.controller.getStaticConf().isBFT());
-						break;
-					case TOMUtil.SM_REPLY:
-						tomLayer.getStateManager().SMReplyDeliver(smsg, tomLayer.controller.getStaticConf().isBFT());
-						break;
-					case TOMUtil.SM_ASK_INITIAL:
-						tomLayer.getStateManager().currentConsensusIdAsked(smsg.getSender());
-						break;
-					case TOMUtil.SM_REPLY_INITIAL:
-						tomLayer.getStateManager().currentConsensusIdReceived(smsg);
-						break;
-					default:
-						tomLayer.getStateManager().stateTimeout();
-						break;
-					}
-					/******************************************************************/
-				} else if(sm instanceof TreeMessage){
-					TreeMessage treeM = (TreeMessage) sm;
-					this.mrSP.treatMessages(treeM);
-				}
-				else {
-					logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
-				}
-			} else {
-				logger.warn("Discarding unauthenticated message from " + sm.getSender());
-			}
+			/******************************************************************/
 		}
+		/**
+		 * Tulio A. Ribeiro, Handle Spanning Tree Messages.
+		 */
+		else if (sm instanceof TreeMessage) {
+			TreeMessage treeM = (TreeMessage) sm;
+			this.mrSP.treatMessages(treeM);
+		} else {
+			logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
+		}
+
 	}
 
 	protected void verifyPending() {

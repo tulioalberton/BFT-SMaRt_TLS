@@ -89,8 +89,8 @@ public class TreeManager {
 			 * (!this.unexplored.isEmpty()) { int toSend = this.unexplored.poll();
 			 * System.out.println("Sending M message to: " + toSend); commS.send(new int[] {
 			 * toSend }, signedMessage(tm)); Random rand = new Random(); try {
-			 * Thread.sleep(rand.nextInt(10)); } catch (InterruptedException e) { // TODO
-			 * Auto-generated catch block e.printStackTrace(); } }
+			 * Thread.sleep(rand.nextInt(10)); } catch (InterruptedException e) { 
+			 *	e.printStackTrace(); } }
 			 */
 			return true;
 		} else {
@@ -101,7 +101,7 @@ public class TreeManager {
 	private void explore() {
 		lock.lock();
 		if (!this.unexplored.isEmpty()) {
-			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.M,currentLeader);
+			TreeMessage tm = new TreeMessage(this.replicaId, TreeOperationType.DISCOVER,currentLeader);
 			int toSend = this.unexplored.poll();
 			logger.trace("Sending M message to: {}", toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
@@ -127,7 +127,7 @@ public class TreeManager {
 		case INIT:
 			initProtocol();
 			break;
-		case M:
+		case DISCOVER:
 			receivedM(msg);
 			break;
 		case ALREADY:

@@ -293,17 +293,19 @@ public final class Acceptor {
 						advanceBatchSaving(map);
 					}
 
-					/*if (communication.getMultiRootedSP().getFinish()) {
+					if (communication.getMultiRootedSP().getFinish()) {
 						// Write messages goes UP the tree..
-						ConsensusMessage msg = factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash);
+						ConsensusMessage msg = factory.createWrite(cid, epoch.getTimestamp(), 
+								epoch.propValueHash);
 						communication.getMultiRootedSP().forwardTreeMessage( 
-								new ForwardTree(me, msg, Direction.UP,msg.getSender()));
-					} else {*/
+								new ForwardTree(me, msg, Direction.DOWN, me));
+					} else {
 						logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
 						communication.send(this.controller.getCurrentViewOtherAcceptors(),
-								factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash));
+								factory.createWrite(cid, epoch.getTimestamp(), 
+										epoch.propValueHash));
 
-					//}
+					}
 
 					computeWrite(cid, epoch, epoch.propValueHash);
 
@@ -367,7 +369,7 @@ public final class Acceptor {
 	private void computeWrite(int cid, Epoch epoch, byte[] value) {
 		int writeAccepted = epoch.countWrite(value);
 
-		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{},", writeAccepted, cid, epoch.getTimestamp());
+		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{}.", writeAccepted, cid, epoch.getTimestamp());
 
 		if (writeAccepted > controller.getQuorum() 
 				&& Arrays.equals(value, epoch.propValueHash)) {
@@ -418,15 +420,13 @@ public final class Acceptor {
 					}
 				}
 
-				/*if (communication.getMultiRootedSP().getFinish()) {
-					// Write messages goes UP the tree..
+				if (communication.getMultiRootedSP().getFinish()) {
 					communication.getMultiRootedSP().forwardTreeMessage(
-							new ForwardTree(me, cm, Direction.DOWN,cm.getSender()));
-					//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, cm, Direction.UP));
-				} else {*/
+							new ForwardTree(me, cm, Direction.DOWN, me));
+				} else {
 					int[] targets = this.controller.getCurrentViewAcceptors();
 					communication.getServersConn().send(targets, cm);
-				//}
+				}
 
 				epoch.addToProof(cm);
 				computeAccept(cid, epoch, value);
@@ -564,8 +564,6 @@ public final class Acceptor {
 			while (true) {
 				try {
 					ConsensusMessage cm = insertProof.take();
-
-					cm.authenticated = true;
 
 					ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
 					try {

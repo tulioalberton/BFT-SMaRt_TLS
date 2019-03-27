@@ -122,7 +122,7 @@ public class MultiRootedSP {
 	private void explore(int viewTag) {
 		lock.lock();
 		if (!this.viewUnexplored.get(viewTag).isEmpty()) {
-			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.M, viewTag );
+			TreeMessage tm = new TreeMessage(replicaId, TreeOperationType.DISCOVER, viewTag );
 			int toSend = this.viewUnexplored.get(viewTag).poll();
 			logger.trace("Sending M message, view:{}, to:{}", viewTag, toSend);
 			commS.send(new int[] { toSend }, signMessage(tm));
@@ -154,11 +154,10 @@ public class MultiRootedSP {
 		switch (msg.getTreeOperationType()) {
 		case INIT:
 			logger.debug("", toString());
-			//initProtocol(msg.getViewTag());
 			initProtocol(replicaId);
 			break;
-		case M:
-			receivedM(msg);
+		case DISCOVER:
+			receivedDiscover(msg);
 			break;
 		case ALREADY:
 			receivedAlready(msg);
@@ -186,7 +185,7 @@ public class MultiRootedSP {
 		}
 	}
 
-	private void receivedM(TreeMessage msg) {
+	private void receivedDiscover(TreeMessage msg) {
 		removeFromViewUnexplored(msg.getViewTag(), replicaId);
 		if (this.viewParent.get(msg.getViewTag()) == -1) {
 			lock.lock();
@@ -201,7 +200,6 @@ public class MultiRootedSP {
 			try {
 				Thread.sleep(10);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 					
@@ -299,17 +297,23 @@ public class MultiRootedSP {
 			}
 			break;
 		case DOWN:
+			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN, msg.getViewTag());
 			if (this.viewChildren.get(msg.getViewTag()).isEmpty()) {
 				logger.debug("I have no children.");
+				/*if(cm.getType() == 44783) {//send to mySelf accept messages.
+					logger.info("Sending ACCEPT message to myself.");
+					commS.send(new int[] { replicaId}, fwdTree);
+				}*/
 				return;
 			}
-			ForwardTree fwdTree = new ForwardTree(replicaId, cm, Direction.DOWN, msg.getViewTag());
+			
 			Iterator<Integer> it = this.viewChildren.get(msg.getViewTag()).iterator();
 			while (it.hasNext()) {
 				Integer child = (Integer) it.next();
-				logger.info("### Forwarding Tree message DOWN, view:{}, "
-						+ "fwdT.from:{} -> to:{}, cm.sender:{}, cm.type:{}", 
-						new Object[] {msg.getViewTag(), fwdTree.getSender(), child, cm.getSender(), cm.getType()}
+				logger.trace("### Forwarding ({}) Tree message DOWN, view:{}, "
+						+ "fwdT.from:{} -> to:{}, cm.sender:{}", 
+						new Object[] { cm.getType(), msg.getViewTag(), fwdTree.getSender(), 
+								child, cm.getSender(),}
 						);	
 				commS.send(new int[] { child }, fwdTree);
 			}

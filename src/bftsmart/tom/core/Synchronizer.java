@@ -95,7 +95,7 @@ public class Synchronizer {
         this.bb = this.tom.bb;
         this.communication = this.tom.getCommunication();
         this.stateManager = this.tom.stateManager;
-        this.acceptor = this.tom.acceptorSSLTLS;
+        this.acceptor = this.tom.acceptor;
         this.md = this.tom.md;
         
         this.outOfContextLC = new HashSet<>();

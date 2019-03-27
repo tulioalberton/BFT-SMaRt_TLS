@@ -145,7 +145,6 @@ public class ViewManager {
         byte[] data = bOut.toByteArray();
 
         for (Integer i : targets) {
-            //br.ufsc.das.tom.util.Logger.println("(ServersCommunicationLayer.send) Sending msg to replica "+i);
             try {
                 if (i.intValue() != id) {
                 		getConnection(i.intValue()).send(data);
@@ -155,7 +154,6 @@ public class ViewManager {
                 logger.error("Failed to send data to target", ex);
             }
         }
-        //br.ufsc.das.tom.util.Logger.println("(ServersCommunicationLayer.send) Finished sending messages to replicas");
     }
 
     public void close() {

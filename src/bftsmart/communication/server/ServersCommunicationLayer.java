@@ -276,13 +276,11 @@ public class ServersCommunicationLayer extends Thread {
 		for (int target : targetArray) {
 			try {
 				if (target == me) {
-					sm.authenticated = true;
 					inQueue.put(sm);
 					logger.debug("Queueing (delivering) my own message, me:{}", target);
 				} else {
 					if(sm instanceof TreeMessage) {
 						logger.debug("Sending TreeMessage from:{} -> to:{}.", me,  target);
-						sm.authenticated = true;
 					}
 					else if (sm instanceof ConsensusMessage) {
 						ConsensusMessage cm = (ConsensusMessage) sm;

@@ -317,6 +317,8 @@ public class Consensus {
                 logger.debug("Delivering decision from consensus " + getId() + " to the TOMLayer/DeliveryThread");
                 manager.getTOMLayer().decided(decision);
             }
+        }else{
+        	logger.debug("Decided:{}, Epoch:{}", decided, epoch);
         }
     }
 }

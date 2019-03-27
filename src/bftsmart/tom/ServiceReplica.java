@@ -396,13 +396,13 @@ public class ServiceReplica {
 									request.seed, regencies[consensusCount], leaders[consensusCount],
 									consId[consensusCount], cDecs[consensusCount].getConsMessages(), firstRequest,
 									false);
-							if (requestCount + 1 == requestsFromConsensus.length) {
+							/*if (requestCount + 1 == requestsFromConsensus.length) {
 								msgCtxTree.setLastInBatch();
-							}
+							}*/
 							
-							if (this.recoverer != null)
+							/*if (this.recoverer != null)
 								this.recoverer.Op(msgCtxTree.getConsensusId(), request.getContent(), msgCtxTree);
-
+*/
 							/**
 							 * To create a static tree version, for test only purpose. There are two ways,
 							 * call the treatMessages(msg) with a TreeOperationType.STATIC_TREE. or, the
@@ -452,16 +452,6 @@ public class ServiceReplica {
 									+ " via Replier");
 							replier.manageReply(request);
 							
-							/*if (SVController.getStaticConf().getNumRepliers() > 0) {
-								logger.debug(
-										"Sending reply to " + request.getSender() + " TREE_MESSAGE "
-												+ " via ReplyManager");
-								repMan.send(request);
-							} else {
-								logger.debug("Sending reply to " + request.getSender() + " TREE MESSAGE "
-										+ " via Replier");
-								replier.manageReply(request);
-							}*/
 
 							break;
 						default: // this code should never be executed
@@ -559,7 +549,7 @@ public class ServiceReplica {
 				}
 			}
 			// DEBUG
-			logger.info("Batch succesfully executed (END).");
+			logger.debug("Batch succesfully executed (END).");
 		}
 	}
 

@@ -34,9 +34,7 @@ import java.security.Security;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
 import java.security.spec.InvalidKeySpecException;
-import java.util.HashSet;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -80,8 +78,6 @@ public class ServerConnection {
 	private boolean useSenderThread;
 	private LinkedBlockingQueue<SystemMessage> inQueue;
 	protected LinkedBlockingQueue<byte[]> outQueue;// = new LinkedBlockingQueue<byte[]>(SEND_QUEUE_SIZE);
-	private HashSet<Integer> noMACs = null; // this is used to keep track of data to be sent without a MAC.
-											// It uses the reference id for that same data	
 
 	private Lock connectLock = new ReentrantLock();
 	/** Only used when there is no sender Thread */
@@ -97,7 +93,6 @@ public class ServerConnection {
 	private SSLSocketFactory socketFactory;
 	private static final String SECRET = "MySeCreT_2hMOygBwY";
 
-	
 	public ServerConnection(ServerViewController controller, SSLSocket socketSSL, int remoteId,
 			LinkedBlockingQueue<SystemMessage> inQueue, ServiceReplica replica) {
 
@@ -111,7 +106,6 @@ public class ServerConnection {
 
 		this.outQueue = new LinkedBlockingQueue<byte[]>(this.controller.getStaticConf().getOutQueueSize());
 
-		this.noMACs = new HashSet<Integer>();
 		// Connect to the remote process or just wait for the connection?
 		if (isToConnect()) {
 			ssltlsCreateConnection();
@@ -203,8 +197,9 @@ public class ServerConnection {
 				return; // if there is a need to reconnect, abort this method
 			if (socketSSL != null && socketOutStream != null) {
 				try {
+
 					// do an extra copy of the data to be sent, but on a single out stream write
-					byte[] data = new byte[5 + messageData.length];// without MAC
+					byte[] data = new byte[5 + messageData.length]; // without MAC
 					int value = messageData.length;
 
 					System.arraycopy(new byte[] { (byte) (value >>> 24), (byte) (value >>> 16), (byte) (value >>> 8),
@@ -254,9 +249,8 @@ public class ServerConnection {
 	/**
 	 * (Re-)establish connection between peers.
 	 *
-	 * @param newSocket
-	 *            socket created when this server accepted the connection (only used
-	 *            if processId is less than remoteId)
+	 * @param newSocket socket created when this server accepted the connection
+	 *                  (only used if processId is less than remoteId)
 	 */
 	protected void reconnect(SSLSocket newSocket) {
 
@@ -275,8 +269,6 @@ public class ServerConnection {
 					socketOutStream = new DataOutputStream(socketSSL.getOutputStream());
 					socketInStream = new DataInputStream(socketSSL.getInputStream());
 
-					// authKey = null;
-					// authenticateAndEstablishAuthKey();
 				} catch (IOException ex) {
 					logger.error("Failed to authenticate to replica", ex);
 				}
@@ -306,6 +298,7 @@ public class ServerConnection {
 	private void waitAndConnect() {
 		if (doWork) {
 			try {
+				//logger.warn("Waiting and connect...");
 				Thread.sleep(POOL_TIME);
 			} catch (InterruptedException ie) {
 			}
@@ -361,11 +354,8 @@ public class ServerConnection {
 				if (socketSSL != null && socketInStream != null) {
 
 					try {
-						// read data length
 						int dataLength = socketInStream.readInt();
 						byte[] data = new byte[dataLength];
-
-						// read data
 						int read = 0;
 						do {
 							read += socketInStream.read(data, read, dataLength - read);
@@ -373,25 +363,24 @@ public class ServerConnection {
 
 						byte hasMAC = socketInStream.readByte();
 
-						logger.trace("Read: {}, HasMAC: {}", read, hasMAC);
-
 						SystemMessage sm = (SystemMessage) (new ObjectInputStream(new ByteArrayInputStream(data))
 								.readObject());
-
-						//The MAC verification it is done for the SSL/TLS protocol.
-						sm.authenticated = true;
 
 						if (sm.getSender() == remoteId) {
 							if (!inQueue.offer(sm)) {
 								logger.warn("Inqueue full (message from " + remoteId + " discarded).");
-							} else {
+							} /*else {
 								logger.trace("Message: {} queued, remoteId: {}", sm.toString(), sm.getSender());
-							}
-						}
+							}*/
+						}/* else {
+							logger.warn("sm.getSender() != remoteId");
+						}*/
+
 					} catch (ClassNotFoundException ex) {
 						logger.info("Invalid message received. Ignoring!");
 						// invalid message received, just ignore;
 					} catch (IOException ex) {
+						//ex.printStackTrace();
 						if (doWork) {
 							logger.debug("Closing socket and reconnecting");
 							closeSocket();
@@ -425,11 +414,6 @@ public class ServerConnection {
 
 		@Override
 		public void run() {
-		/*	byte[] receivedMac = null;
-			try {
-				receivedMac = new byte[TOMUtil.getMacFactory().getMacLength()];
-			} catch (NoSuchAlgorithmException ex) {
-			}*/
 
 			while (doWork) {
 				if (socketSSL != null && socketInStream != null) {
@@ -445,17 +429,21 @@ public class ServerConnection {
 							read += socketInStream.read(data, read, dataLength - read);
 						} while (read < dataLength);
 
+						// byte hasMAC = socketInStream.readByte();
+
 						SystemMessage sm = (SystemMessage) (new ObjectInputStream(new ByteArrayInputStream(data))
 								.readObject());
 
 						if (sm.getSender() == remoteId) {
 							this.replica.joinMsgReceived((VMMessage) sm);
+						} else {
+							logger.warn("sm.getSender() != remoteId");
 						}
 
 					} catch (ClassNotFoundException ex) {
 						logger.error("Failed to deserialize message", ex);
 					} catch (IOException ex) {
-						// ex.printStackTrace();
+						ex.printStackTrace();
 						if (doWork) {
 							closeSocket();
 							waitAndConnect();

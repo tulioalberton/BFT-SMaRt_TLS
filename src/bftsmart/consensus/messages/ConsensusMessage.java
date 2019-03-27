@@ -32,8 +32,7 @@ public class ConsensusMessage extends SystemMessage {
     private int epoch; // Epoch to which this message belongs to
     private int paxosType; // Message type
     private byte[] value = null; // Value used when message type is PROPOSE
-    private Object proof; // Proof used when message type is COLLECT
-                              // Can be either a MAC vector or a signature
+    private Object proof; // Proof used when message type is COLLECT, only signature
 
     /**
      * Creates a consensus message. Not used. TODO: How about making it private?
@@ -49,7 +48,7 @@ public class ConsensusMessage extends SystemMessage {
      * @param from This should be this process ID
      * @param value This should be null if its a COLLECT message, or the proposed value if it is a PROPOSE message
      */
-    public ConsensusMessage(int paxosType, int id,int epoch,int from, byte[] value){
+    public ConsensusMessage(int paxosType, int id, int epoch, int from, byte[] value){
 
         super(from);
 
@@ -57,8 +56,6 @@ public class ConsensusMessage extends SystemMessage {
         this.number = id;
         this.epoch = epoch;
         this.value = value;
-        //this.macVector = proof;
-
     }
 
 

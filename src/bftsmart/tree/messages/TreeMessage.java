@@ -31,7 +31,7 @@ public class TreeMessage extends SystemMessage {
 		RECONFIG,//not used
 		NOOP,
 		// messages to deal with spanning tree for a specified root. 
-		M, 
+		DISCOVER, 
 		ALREADY,
 		PARENT,
 		FINISHED,

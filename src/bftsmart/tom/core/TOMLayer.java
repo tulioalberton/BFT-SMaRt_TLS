@@ -70,7 +70,6 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 	// other components used by the TOMLayer (they are never changed)
 	public ExecutionManager execManager; // Execution manager
 	public Acceptor acceptor; // Acceptor role of the PaW algorithm
-	public Acceptor acceptorSSLTLS; // Acceptor role of the PaW algorithm
 	private ServerCommunicationSystem communication; // Communication system between replicas
 	private DeliveryThread dt; // Thread which delivers total ordered messages to the appication
 	public StateManager stateManager = null; // object which deals with the state transfer protocol
@@ -450,11 +449,14 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 	 * @param dec The decision of the consensus
 	 */
 	public void decided(Decision dec) {
-
+		
+		logger.debug("dec.setRecency: {}", syncher.getLCManager().getLastReg());
 		dec.setRegency(syncher.getLCManager().getLastReg());
 
+		logger.debug("dec.setCurrentLeader: {}", syncher.getLCManager().getLastReg());
 		dec.setLeader(execManager.getCurrentLeader());
 
+		logger.debug("Sending the decision to the delivery thread...");
 		this.dt.delivery(dec); // Sends the decision to the delivery thread
 	}
 

@@ -81,7 +81,8 @@ public final class DeliveryThread extends Thread {
      * @param dec Decision established from the consensus
      */
     public void delivery(Decision dec) {
-        logger.debug("");
+        logger.debug(" Decision {}, deserialized Value: {}",  
+        		dec.getConsensusId(), dec.getDeserializedValue());
         try {
             decidedLock.lock();
             decided.put(dec);
@@ -248,6 +249,7 @@ public final class DeliveryThread extends Thread {
                            processReconfigMessages(lastDecision.getConsensusId());
                         }
                        if (hadReconfig) {
+                    	   logger.debug("hadReconfig:{}", hadReconfig);
                            
                            // set the consensus associated to the last decision as the last executed
                            tomLayer.setLastExec(lastDecision.getConsensusId());
@@ -273,7 +275,7 @@ public final class DeliveryThread extends Thread {
             } catch (Exception e) {
                     logger.error("Error while processing decision",e);
             }
-
+            logger.debug("CAllling deliverUnlock()");
             /** THIS IS JOAO'S CODE, TO HANDLE STATE TRANSFER */
             deliverUnlock();
             /******************************************************************/
@@ -319,7 +321,7 @@ public final class DeliveryThread extends Thread {
     private void processReconfigMessages(int consId) {
         byte[] response = controller.executeUpdates(consId);
         TOMMessage[] dests = controller.clearUpdates();
-
+        logger.debug("Processing Reconfig Messages for consensus: {}.", consId);
         if (controller.getCurrentView().isMember(receiver.getId())) {
             for (int i = 0; i < dests.length; i++) {
                 tomLayer.getCommunication().send(new int[]{dests[i].getSender()},
