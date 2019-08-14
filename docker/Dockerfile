@@ -1,4 +1,5 @@
-FROM ubuntu:latestJava
+#FROM ubuntu:latestJava
+FROM ubuntu:latest
 #FROM tulioribeiro/bft-smart:v1_f1
 
 # Set the working directory to /opt

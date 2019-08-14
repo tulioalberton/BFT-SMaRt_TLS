@@ -22,37 +22,41 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignedObject;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.NoSuchElementException;
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import bftsmart.clientsmanagement.ClientsManager;
 import bftsmart.clientsmanagement.RequestList;
 import bftsmart.communication.ServerCommunicationSystem;
 import bftsmart.communication.client.RequestReceiver;
-import bftsmart.consensus.Decision;
 import bftsmart.consensus.Consensus;
+import bftsmart.consensus.Decision;
 import bftsmart.consensus.Epoch;
-import bftsmart.consensus.roles.Acceptor;
 import bftsmart.consensus.roles.Acceptor;
 import bftsmart.reconfiguration.ServerViewController;
 import bftsmart.statemanagement.StateManager;
 import bftsmart.tom.ServiceReplica;
+import bftsmart.tom.core.messages.ForwardedMessage;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.core.messages.TOMMessageType;
-import bftsmart.tom.core.messages.ForwardedMessage;
 import bftsmart.tom.leaderchange.RequestsTimer;
 import bftsmart.tom.server.Recoverable;
 import bftsmart.tom.server.RequestVerifier;
 import bftsmart.tom.util.BatchBuilder;
 import bftsmart.tom.util.BatchReader;
 import bftsmart.tom.util.TOMUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * This class implements the state machine replication protocol described in
@@ -356,12 +360,37 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 	}
 
 	/**
+	 *  
+	 */
+	private HashSet<Integer> randomViews() {
+		HashSet<Integer> views = new HashSet<>();
+
+		Integer[] targetArray = Arrays.stream(controller.getCurrentViewAcceptors()).boxed().toArray(Integer[]::new);
+		Collections.shuffle(Arrays.asList(targetArray), new Random());
+		int n = controller.getCurrentViewN();
+		int f = controller.getCurrentViewF();
+		int control = 0;
+		while (views.size() < (n - f)) {
+			views.add(targetArray[control++]);
+		}
+		return views;
+	}
+
+	/**
 	 * This is the main code for this thread. It basically waits until this replica
 	 * becomes the leader, and when so, proposes a value to the other acceptors
 	 */
 	@Override
 	public void run() {
 		logger.debug("Running."); // TODO: can't this be outside of the loop?
+
+		/**
+		 * Views randomly selected at begins.
+		 */
+		HashSet<Integer> views = new HashSet<>();
+		// views.clear();
+		views.addAll(randomViews());
+
 		while (doWork) {
 
 			// blocks until this replica learns to be the leader for the current epoch of
@@ -380,11 +409,21 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 			if (!doWork)
 				break;
 
+			byte[] advancePropose = null;
+
 			// blocks until the current consensus finishes
 			proposeLock.lock();
-
 			if (getInExec() != -1) { // there is some consensus running
 				logger.debug("Waiting for consensus " + getInExec() + " termination.");
+
+				int advanceExecutionId = getLastExec() + 1;
+				Decision decision = execManager.getConsensus(advanceExecutionId).getDecision();
+				try {
+					advancePropose = createPropose(decision);
+				} catch (NoSuchElementException e) {
+					logger.error("No such element exception.");
+				}
+
 				canPropose.awaitUninterruptibly();
 			}
 			proposeLock.unlock();
@@ -436,7 +475,10 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 					continue;
 
 				}
-				execManager.getProposer().startConsensus(execId, createPropose(dec));
+				if (advancePropose == null)
+					execManager.getProposer().startConsensus(execId, createPropose(dec), views);
+				else
+					execManager.getProposer().startConsensus(execId, advancePropose, views);
 			}
 		}
 		logger.info("TOMLayer stopped.");
@@ -449,7 +491,7 @@ public final class TOMLayer extends Thread implements RequestReceiver {
 	 * @param dec The decision of the consensus
 	 */
 	public void decided(Decision dec) {
-		
+
 		logger.debug("dec.setRecency: {}", syncher.getLCManager().getLastReg());
 		dec.setRegency(syncher.getLCManager().getLastReg());
 

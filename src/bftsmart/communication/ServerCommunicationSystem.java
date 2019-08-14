@@ -32,6 +32,7 @@ import bftsmart.tom.ServiceReplica;
 import bftsmart.tom.core.TOMLayer;
 import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tree.MultiRootedSP;
+import bftsmart.tree.TreeManager;
 import bftsmart.tree.messages.TreeMessage;
 
 /**
@@ -89,13 +90,6 @@ public class ServerCommunicationSystem extends Thread {
 		messageHandler.setAcceptor(acceptor);
 	}
 
-	public void setMultiRootedSP(MultiRootedSP mrSP) {
-		messageHandler.setMultiRootedSP(mrSP);
-	}
-	public MultiRootedSP getMultiRootedSP() {
-		return messageHandler.getMultiRootedSP();
-	}
-	
 	public void setTOMLayer(TOMLayer tomLayer) {
 		messageHandler.setTOMLayer(tomLayer);
 	}
@@ -192,6 +186,21 @@ public class ServerCommunicationSystem extends Thread {
 
 	}
 
-	
+	/**
+	 * Spanning tree 
+	 * Tulio Ribeiro
+	 * */
+	public void setMultiRootedSP(MultiRootedSP mrSP) {
+		messageHandler.setMultiRootedSP(mrSP);
+	}
+	public MultiRootedSP getMultiRootedSP() {
+		return messageHandler.getMultiRootedSP();
+	}
+	public void setTreeManager(TreeManager tm) {
+		messageHandler.setTreeManager(tm);
+	}
+	public TreeManager getTreeManager() {
+		return messageHandler.getTreeManager();
+	}
 
 }

@@ -161,6 +161,7 @@ public class Epoch implements Serializable {
     public Set<ConsensusMessage> getProof() {
         return proof;
     }
+    
     /**
      * Retrieves the duration for the timeout
      * @return Duration for the timeout

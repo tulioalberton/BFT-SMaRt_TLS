@@ -15,6 +15,8 @@ limitations under the License.
 */
 package bftsmart.consensus.messages;
 
+import java.util.HashSet;
+
 /**
  * This class work as a factory of messages used in the paxos protocol.
  */
@@ -45,9 +47,9 @@ public class MessageFactory{
      * @param proof Proofs from other replicas
      * @return A paxos message of the PROPOSE type, with the specified id, epoch, value, and proof
      */
-    public ConsensusMessage createPropose(int id, int epoch, byte[] value) {
+    public ConsensusMessage createPropose(int id, int epoch, byte[] value, HashSet<Integer> views) {
 
-        return new ConsensusMessage(PROPOSE, id, epoch, from, value);
+        return new ConsensusMessage(PROPOSE, id, epoch, from, value, views);
 
     }
 
@@ -58,9 +60,9 @@ public class MessageFactory{
      * @param value Write value
      * @return A consensus message of the WRITE type, with the specified id, epoch, and value
      */
-    public ConsensusMessage createWrite(int id, int epoch, byte[] value) {
+    public ConsensusMessage createWrite(int id, int epoch, byte[] value, HashSet<Integer> views) {
 
-        return new ConsensusMessage(WRITE,id,epoch, from, value);
+        return new ConsensusMessage(WRITE,id,epoch, from, value, views);
 
     }
 
@@ -71,9 +73,9 @@ public class MessageFactory{
      * @param value Accepted value
      * @return A consensus message of the ACCEPT type, with the specified id, epoch, and value
      */
-    public ConsensusMessage createAccept(int id, int epoch, byte[] value) {
+    public ConsensusMessage createAccept(int id, int epoch, byte[] value, HashSet<Integer> views) {
 
-        return new ConsensusMessage(ACCEPT,id,epoch, from, value);
+        return new ConsensusMessage(ACCEPT,id,epoch, from, value, views);
 
     }
 

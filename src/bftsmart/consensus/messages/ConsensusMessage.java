@@ -18,6 +18,7 @@ package bftsmart.consensus.messages;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.util.HashSet;
 
 import bftsmart.communication.SystemMessage;
 
@@ -33,7 +34,12 @@ public class ConsensusMessage extends SystemMessage {
     private int paxosType; // Message type
     private byte[] value = null; // Value used when message type is PROPOSE
     private Object proof; // Proof used when message type is COLLECT, only signature
-
+    
+    /** Tulio A. Ribeiro
+      * To deal with spanning tree dissemination. This define which views will be active in this consensus.
+      **/ 
+    private HashSet<Integer> views;
+    
     /**
      * Creates a consensus message. Not used. TODO: How about making it private?
      */
@@ -47,8 +53,9 @@ public class ConsensusMessage extends SystemMessage {
      * @param epoch Epoch timestamp
      * @param from This should be this process ID
      * @param value This should be null if its a COLLECT message, or the proposed value if it is a PROPOSE message
+     * @param set of active views used when the spanning tree protocol is enabled and active.
      */
-    public ConsensusMessage(int paxosType, int id, int epoch, int from, byte[] value){
+    public ConsensusMessage(int paxosType, int id, int epoch, int from, byte[] value, HashSet<Integer> views){
 
         super(from);
 
@@ -56,6 +63,7 @@ public class ConsensusMessage extends SystemMessage {
         this.number = id;
         this.epoch = epoch;
         this.value = value;
+        this.views = views;
     }
 
 
@@ -67,11 +75,11 @@ public class ConsensusMessage extends SystemMessage {
      * @param epoch Epoch timestamp
      * @param from This should be this process ID
      */
-    public ConsensusMessage(int type, int id,int epoch, int from) {
+   /* public ConsensusMessage(int type, int id,int epoch, int from) {
 
-        this(type, id, epoch, from, null);
+        this(type, id, epoch, from, null, null);
 
-    }
+    }*/
 
     // Implemented method of the Externalizable interface
     @Override
@@ -84,27 +92,26 @@ public class ConsensusMessage extends SystemMessage {
         out.writeInt(paxosType);
 
         if(value == null) {
-
             out.writeInt(-1);
-
         } else {
-
             out.writeInt(value.length);
             out.write(value);
-
         }
 
         if(this.proof != null) {
-
             out.writeBoolean(true);
             out.writeObject(proof);
-
         }
-        
         else {
             out.writeBoolean(false);
         }
 
+        if(this.views != null) {
+        	out.writeBoolean(true);
+        	out.writeObject(views);
+        }else {
+            out.writeBoolean(false);
+        }
     }
 
     // Implemented method of the Externalizable interface
@@ -120,23 +127,21 @@ public class ConsensusMessage extends SystemMessage {
         int toRead = in.readInt();
 
         if(toRead != -1) {
-
             value = new byte[toRead];
-
             do{
-
                 toRead -= in.read(value, value.length-toRead, toRead);
-
             } while(toRead > 0);
-
         }
 
-        boolean asProof = in.readBoolean();
-        if (asProof) {
-            
+        boolean hasProof = in.readBoolean();
+        if (hasProof) {
             proof = in.readObject();
         }
         
+        boolean hasViews = in.readBoolean();
+        if(hasViews) {
+        	views = (HashSet) in.readObject();
+        }
     }
 
     /**
@@ -144,9 +149,7 @@ public class ConsensusMessage extends SystemMessage {
      * @return Epoch to which this message belongs
      */
     public int getEpoch() {
-
         return epoch;
-
     }
     
     /**
@@ -154,9 +157,7 @@ public class ConsensusMessage extends SystemMessage {
      * @return The value
      */
     public byte[] getValue() {
-
         return value;
-
     }
 
     public void setProof(Object proof) {
@@ -168,9 +169,7 @@ public class ConsensusMessage extends SystemMessage {
      * @return The proof
      */
     public Object getProof() {
-
         return proof;
-
     }
 
     /**
@@ -178,9 +177,7 @@ public class ConsensusMessage extends SystemMessage {
      * @return Consensus ID of this message
      */
     public int getNumber() {
-
         return number;
-
     }
 
     /**
@@ -188,9 +185,13 @@ public class ConsensusMessage extends SystemMessage {
      * @return This message type
      */
     public int getType() {
-
         return paxosType;
-
+    }
+    /**
+     * Returns the Views containing the view related with a consensus. 
+     */
+    public HashSet<Integer> getViews() {
+    	return views;
     }
 
     /**

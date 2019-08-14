@@ -15,12 +15,12 @@ limitations under the License.
 */
 package bftsmart.consensus.roles;
 
+import java.util.HashSet;
+
 import bftsmart.communication.ServerCommunicationSystem;
 import bftsmart.consensus.messages.ConsensusMessage;
 import bftsmart.consensus.messages.MessageFactory;
 import bftsmart.reconfiguration.ServerViewController;
-import bftsmart.tree.messages.ForwardTree;
-import bftsmart.tree.messages.ForwardTree.Direction;
 
 /**
  * This class represents the proposer role in the consensus protocol.
@@ -53,24 +53,10 @@ public class Proposer {
      * @param cid ID for the consensus instance to be started
      * @param value Value to be proposed
      */
-    public void startConsensus(int cid, byte[] value) {
-        /**
-         * Spanning-tree communication.
-         */
-    	if(communication.getMultiRootedSP().getFinish()) {
-    		ConsensusMessage propose = factory.createPropose(cid, 0, value);
-    		ForwardTree fwdTree = new ForwardTree(propose.getSender(), propose, 
-    				Direction.DOWN, propose.getSender()); 
-    		//System.out.println("## Sending propose by spanning tree way.");
-        	communication.getMultiRootedSP().forwardTreeMessage(fwdTree);
-        	
-        	communication.send(new int[] {this.controller.getCurrentView().getId()},
-                    factory.createPropose(cid, 0, value));
-        	
-        }else{
-        	//System.out.println("Sending propose by a normal way.");
-            communication.send(this.controller.getCurrentViewAcceptors(),
-                    factory.createPropose(cid, 0, value));
-        }
+    public void startConsensus(int cid, byte[] value, HashSet<Integer> views ) {
+    	
+        communication.send(this.controller.getCurrentViewAcceptors(), 
+        		factory.createPropose(cid, 0, value, views));
+    	
     }
 }

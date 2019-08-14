@@ -60,7 +60,10 @@ public class TreeInit {
 			treeOperation = TreeOperationType.RECONFIG;	
 			break;
 		case "STATUS":
-			treeOperation = TreeOperationType.STATUS;	
+			treeOperation = TreeOperationType.STATUS;
+			break;
+		case "STATIC_TREE":
+			treeOperation = TreeOperationType.STATIC_TREE;
 			break;
 		default:
 			treeOperation = TreeOperationType.NOOP;

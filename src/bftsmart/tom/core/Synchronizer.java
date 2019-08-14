@@ -1012,7 +1012,7 @@ public class Synchronizer {
             tempBatchSize = batchSize;
             tempIAmLeader = iAmLeader;
 
-            execManager.getStoppedMsgs().add(acceptor.getFactory().createPropose(currentCID, 0, propose));
+            execManager.getStoppedMsgs().add(acceptor.getFactory().createPropose(currentCID, 0, propose, null));
             stateManager.requestAppState(lastHighestCID.getCID());
 
             return;
@@ -1197,11 +1197,19 @@ public class Synchronizer {
 				
                 logger.info("Sending WRITE message for CID " + currentCID + ", timestamp " + e.getTimestamp() + ", value " + Arrays.toString(e.propValueHash));
                 communication.send(this.controller.getCurrentViewOtherAcceptors(),
-                        acceptor.getFactory().createWrite(currentCID, e.getTimestamp(), e.propValueHash));
+                        acceptor.getFactory().createWrite(
+                        			currentCID, 
+                        			e.getTimestamp(), 
+                        			e.propValueHash,
+                        			null));
             } else {
                 logger.info("Sending ACCEPT message for CID " + currentCID + ", timestamp " + e.getTimestamp() + ", value " + Arrays.toString(e.propValueHash));
                 communication.send(this.controller.getCurrentViewOtherAcceptors(),
-                        acceptor.getFactory().createAccept(currentCID, e.getTimestamp(), e.propValueHash));
+                        acceptor.getFactory().createAccept(
+                        			currentCID, 
+                        			e.getTimestamp(), 
+                        			e.propValueHash,
+                        			null));
             }
         } else {
             logger.warn("Sync phase failed for regency" + regency);

@@ -32,7 +32,8 @@ public class ForwardTree extends SystemMessage {
 	private int viewTag;
 	public enum Direction {
 		UP, // Forward Message Up Tree 
-		DOWN// Forward Message Down Tree
+		DOWN,// Forward Message Down Tree
+		LEAFS// Forward Message to other side of the tree
 	}
 	private Direction direction;
 	/**

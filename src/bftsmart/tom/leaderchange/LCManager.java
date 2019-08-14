@@ -818,7 +818,8 @@ public class LCManager {
             		consMsg.getNumber(),
                     consMsg.getEpoch(), 
                     consMsg.getSender(), 
-                    consMsg.getValue());
+                    consMsg.getValue(),
+                    null);
 
             ByteArrayOutputStream bOut = new ByteArrayOutputStream(248);
             try {

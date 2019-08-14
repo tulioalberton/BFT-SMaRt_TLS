@@ -34,6 +34,7 @@ import java.nio.file.Files;
 import java.security.PrivateKey;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Set;
@@ -182,41 +183,17 @@ public final class Acceptor {
 		Epoch epoch = consensus.getEpoch(msg.getEpoch(), controller);
 		switch (msg.getType()) {
 		case MessageFactory.PROPOSE: {
-
-			/*if (communication.getMultiRootedSP().getFinish() 
-					&& msg.getSender() != me) {
-				// we will pass all messages through the spanning-tree.
-				communication.getMultiRootedSP().forwardTreeMessage(
-						new ForwardTree(me, msg, Direction.DOWN, me));
-			}*/
+			//logger.info("Received a PROPOSE with views:{}", msg.getViews());
 			proposeReceived(epoch, msg);
 		}
 			break;
 		case MessageFactory.WRITE: {
-			/*if (communication.getMultiRootedSP().getFinish()) {
-				// we will forward all messages through the spanning-tree.
-				int [] views = controller.getCurrentViewAcceptors();
-				for (int i = 0; i < views.length; i++) {
-					communication.getMultiRootedSP().forwardTreeMessage(
-							new ForwardTree(me, msg, Direction.DOWN, me));
-						
-				//}
-				//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, msg, Direction.DOWN));
-			}*/
-			writeReceived(epoch, msg.getSender(), msg.getValue());
+			//logger.info("Received a WRITE with views:{}", msg.getViews());
+			writeReceived(epoch, msg.getSender(), msg.getValue(), msg.getViews());
 		}
 			break;
 		case MessageFactory.ACCEPT: {
-			/*if (communication.getMultiRootedSP().getFinish()) {
-				// we will forward all messages through the spanning-tree.
-				//communication.getMultiRootedSP().forwardTreeMessage(new ForwardTree(me, msg, Direction.UP));
-				int [] views = controller.getCurrentViewAcceptors();
-				for (int i = 0; i < views.length; i++) {
-					communication.getMultiRootedSP().forwardTreeMessage(
-							new ForwardTree(me, msg, Direction.DOWN, me));
-				//}
-				
-			}*/
+			//logger.info("Received a ACCEPT with views:{}", msg.getViews());
 			acceptReceived(epoch, msg);
 		}
 			break;
@@ -238,7 +215,7 @@ public final class Acceptor {
 		if (msg.getSender() == executionManager.getCurrentLeader() // Is the replica the leader?
 				&& epoch.getTimestamp() == 0 && ts == ets && ets == 0) { // Is all this in epoch 0?
 
-			executePropose(epoch, msg.getValue());
+			executePropose(epoch, msg.getValue(), msg.getViews());
 		} else {
 			logger.debug("Propose received is not from the expected leader");
 		}
@@ -250,7 +227,7 @@ public final class Acceptor {
 	 * @param epoch the current epoch of the consensus
 	 * @param value Value that is proposed
 	 */
-	private void executePropose(Epoch epoch, byte[] value) {
+	private void executePropose(Epoch epoch, byte[] value, HashSet<Integer> views) {
 		int cid = epoch.getConsensus().getId();
 		logger.debug("Executing propose for cId:{}, Epoch Timestamp:{}", cid, epoch.getTimestamp());
 		long consensusStartTime = System.nanoTime();
@@ -293,21 +270,46 @@ public final class Acceptor {
 						advanceBatchSaving(map);
 					}
 
-					if (communication.getMultiRootedSP().getFinish()) {
-						// Write messages goes UP the tree..
-						ConsensusMessage msg = factory.createWrite(cid, epoch.getTimestamp(), 
-								epoch.propValueHash);
-						communication.getMultiRootedSP().forwardTreeMessage( 
-								new ForwardTree(me, msg, Direction.DOWN, me));
+					ConsensusMessage write = factory.createWrite(cid, epoch.getTimestamp(), epoch.propValueHash, views);
+
+					if (controller.getStaticConf().isEnabledSpanningTree()) {
+						if (controller.getStaticConf().getMultiRooted()) {
+							if (communication.getMultiRootedSP().getFinish()) {
+								if (views.contains(me)) {
+									communication.getMultiRootedSP()
+											.forwardTreeMessage(new ForwardTree(me, write, Direction.DOWN, me));
+								}
+							} else {
+								logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
+								communication.send(this.controller.getCurrentViewOtherAcceptors(), write);
+
+							}
+						} else {
+							if (communication.getTreeManager().getFinish()) {
+
+								if (!communication.getTreeManager().getAmILeaf()) {
+									communication.getTreeManager()
+											.forwardTreeMessage(new ForwardTree(me, write, Direction.DOWN, me));
+									communication.getTreeManager()
+											.forwardTreeMessage(new ForwardTree(me, write, Direction.UP, me));
+								} else {
+									communication.getTreeManager()
+											.forwardTreeMessage(new ForwardTree(me, write, Direction.UP, me));
+								}
+
+							} else {
+								logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
+								communication.send(this.controller.getCurrentViewOtherAcceptors(), write);
+
+							}
+						}
 					} else {
 						logger.debug("Sending WRITE for cId:{}, I am:{}", cid, me);
-						communication.send(this.controller.getCurrentViewOtherAcceptors(),
-								factory.createWrite(cid, epoch.getTimestamp(), 
-										epoch.propValueHash));
+						communication.send(this.controller.getCurrentViewOtherAcceptors(), write);
 
 					}
 
-					computeWrite(cid, epoch, epoch.propValueHash);
+					computeWrite(cid, epoch, epoch.propValueHash, views);
 
 					logger.trace("WRITE computed for cId:{}, I am:{}", cid, me);
 
@@ -323,7 +325,7 @@ public final class Acceptor {
 					/*****************************************/
 
 					communication.send(this.controller.getCurrentViewOtherAcceptors(),
-							factory.createAccept(cid, epoch.getTimestamp(), epoch.propValueHash));
+							factory.createAccept(cid, epoch.getTimestamp(), epoch.propValueHash, views));
 
 					computeAccept(cid, epoch, epoch.propValueHash);
 				}
@@ -338,6 +340,7 @@ public final class Acceptor {
 					map.put(cid, value);
 					advanceBatchSaving(map);
 				}
+
 				tomLayer.getSynchronizer().triggerTimeout(new LinkedList<>());
 			}
 		}
@@ -350,12 +353,12 @@ public final class Acceptor {
 	 * @param a     Replica that sent the message
 	 * @param value Value sent in the message
 	 */
-	private void writeReceived(Epoch epoch, int sender, byte[] value) {
+	private void writeReceived(Epoch epoch, int sender, byte[] value, HashSet<Integer> views) {
 		int cid = epoch.getConsensus().getId();
 		logger.trace("WRITE received from:{}, for consensus cId:{}", sender, cid);
 		epoch.setWrite(sender, value);
 
-		computeWrite(cid, epoch, value);
+		computeWrite(cid, epoch, value, views);
 	}
 
 	/**
@@ -366,13 +369,13 @@ public final class Acceptor {
 	 * @param epoch Epoch of the receives message
 	 * @param value Value sent in the message
 	 */
-	private void computeWrite(int cid, Epoch epoch, byte[] value) {
+	private void computeWrite(int cid, Epoch epoch, byte[] value, HashSet<Integer> views) {
 		int writeAccepted = epoch.countWrite(value);
 
-		logger.debug("I have {}, WRITE's for cId:{}, Epoch timestamp:{}.", writeAccepted, cid, epoch.getTimestamp());
+		logger.debug("I have {}, WRITE's for cId:{}, " + "Epoch timestamp:{}. I need more than {} WRITES.",
+				new Object[] { writeAccepted, cid, epoch.getTimestamp(), controller.getQuorum() });
 
-		if (writeAccepted > controller.getQuorum() 
-				&& Arrays.equals(value, epoch.propValueHash)) {
+		if (writeAccepted > controller.getQuorum() && Arrays.equals(value, epoch.propValueHash)) {
 
 			if (!epoch.isAcceptSetted(me)) {
 
@@ -398,12 +401,12 @@ public final class Acceptor {
 						logger.trace("Waiting for readProof Blocking Queue... cID: {}", cid);
 						cm = readProof.take();
 						logger.trace("Awakening from Blocking Queue... cID: {}", cid);
-						
+
 					} else {
 						// Deal with some case where the protocol does not execute from begin, as leader
 						// change.
 						logger.info("Proof not done yes, leader change?, hasProof:{}", this.hasProof);
-						advanceInsertProof(cid, epoch.getTimestamp(), value);
+						advanceInsertProof(cid, epoch.getTimestamp(), value, views);
 						cm = readProof.take();
 					}
 				} catch (InterruptedException e) {
@@ -420,26 +423,57 @@ public final class Acceptor {
 					}
 				}
 
-				if (communication.getMultiRootedSP().getFinish()) {
-					communication.getMultiRootedSP().forwardTreeMessage(
-							new ForwardTree(me, cm, Direction.DOWN, me));
+				if (controller.getStaticConf().isEnabledSpanningTree()) {
+					if (controller.getStaticConf().getMultiRooted()) {
+						if (communication.getMultiRootedSP().getFinish()) {
+							if (views.contains(me)) {
+								communication.getMultiRootedSP()
+										.forwardTreeMessage(new ForwardTree(me, cm, Direction.DOWN, me));
+							}
+							deliver(cm);
+						}
+					} else {
+						if (communication.getTreeManager().getFinish()) {
+
+							if (!communication.getTreeManager().getAmILeaf()) {
+								communication.getTreeManager()
+										.forwardTreeMessage(new ForwardTree(me, cm, Direction.DOWN, me));
+								communication.getTreeManager()
+										.forwardTreeMessage(new ForwardTree(me, cm, Direction.UP, me));
+							} else {
+								communication.getTreeManager()
+										.forwardTreeMessage(new ForwardTree(me, cm, Direction.UP, me));
+							}
+							deliver(cm);
+						} else {
+							int[] targets = this.controller.getCurrentViewOtherAcceptors();
+							communication.getServersConn().send(targets, cm);
+							deliver(cm);
+						}
+					}
+
 				} else {
-					int[] targets = this.controller.getCurrentViewAcceptors();
+					// I will send the accept message to the other through communication system
+					// and for this replica, send through acceptor.deliver().
+					int[] targets = this.controller.getCurrentViewOtherAcceptors();
 					communication.getServersConn().send(targets, cm);
+					deliver(cm);
+					/*
+					 * Old code. int[] targets = this.controller.getCurrentViewAcceptors();
+					 * communication.getServersConn().send(targets, cm);
+					 */
 				}
 
 				epoch.addToProof(cm);
 				computeAccept(cid, epoch, value);
 
-			}
-			else {
-				logger.debug("Not Sending ACCEPT... epoch.toString:{}"
-						, epoch.toString());
+			} else {
+				logger.debug("Not Sending ACCEPT... epoch.toString:{}", epoch.toString());
 			}
 		} else if (!hasProof) {
-			advanceInsertProof(cid, epoch.getTimestamp(), value);
-		}else {
-			
+			advanceInsertProof(cid, epoch.getTimestamp(), value, views);
+		} else {
+
 		}
 	}
 
@@ -461,17 +495,17 @@ public final class Acceptor {
 	}
 
 	/**
-	 * Advancing signature proof for Accept message. 
-	 * It is called by Synchornizer at Leader Changes.
+	 * Advancing signature proof for Accept message. It is called by Synchornizer at
+	 * Leader Changes.
 	 * 
 	 * @param cid: consensus id
 	 * @param epoch: epoch
 	 * @param value: value sent in the message
 	 */
-	public void advanceInsertProof(int cid, int epochTimestamp, byte[] value) {
+	public void advanceInsertProof(int cid, int epochTimestamp, byte[] value, HashSet<Integer> views) {
 		hasProof = true;
 		logger.trace("Advancing signature for ACCEPT message. cId:{}", cid);
-		ConsensusMessage cm = factory.createAccept(cid, epochTimestamp, value);
+		ConsensusMessage cm = factory.createAccept(cid, epochTimestamp, value, views);
 
 		try {
 			insertProof.put(cm);

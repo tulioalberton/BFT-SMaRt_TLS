@@ -27,6 +27,7 @@ import bftsmart.tom.core.messages.TOMMessage;
 import bftsmart.tom.leaderchange.LCMessage;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.MultiRootedSP;
+import bftsmart.tree.TreeManager;
 import bftsmart.tree.messages.ForwardTree;
 import bftsmart.tree.messages.TreeMessage;
 
@@ -40,7 +41,11 @@ public class MessageHandler {
 
 	private Acceptor acceptor;
 	private TOMLayer tomLayer;
+	
+	/* Tulio Ribeiro Spanning Tree*/
 	private MultiRootedSP mrSP;
+	private TreeManager tm;
+	
 	private int replicaId;
 
 	public MessageHandler() {
@@ -50,6 +55,11 @@ public class MessageHandler {
 		this.acceptor = acceptor;
 	}
 
+	/**
+	 * Spanning Tree getters and setters
+	 * Tulio Ribeiro
+	 * @return
+	 */
 	public MultiRootedSP getMultiRootedSP() {
 		return this.mrSP;
 	}
@@ -58,6 +68,14 @@ public class MessageHandler {
 		this.mrSP = mrSP;
 	}
 
+	public TreeManager getTreeManager() {
+		return this.tm;
+	}
+
+	public void setTreeManager(TreeManager tm) {
+		this.tm = tm;
+	}
+	
 	public void setTOMLayer(TOMLayer tomLayer) {
 		this.tomLayer = tomLayer;
 		replicaId = tomLayer.controller.getStaticConf().getProcessId();
@@ -85,8 +103,14 @@ public class MessageHandler {
 			// We deliver all forwarded messages...same as above.
 			acceptor.deliver(consMsg);
 
-			if(consMsg.getSender() != replicaId)
-				this.mrSP.forwardTreeMessage(fwd);
+			if(consMsg.getSender() != replicaId) {
+				if(tomLayer.controller.getStaticConf().getMultiRooted())
+					this.mrSP.forwardTreeMessage(fwd);
+				else 	
+					this.tm.forwardTreeMessage(fwd);
+			}
+				
+			
 
 		} else
 		/*** This is Joao's code, related to leader change */
@@ -153,7 +177,11 @@ public class MessageHandler {
 		 */
 		else if (sm instanceof TreeMessage) {
 			TreeMessage treeM = (TreeMessage) sm;
-			this.mrSP.treatMessages(treeM);
+			if(tomLayer.controller.getStaticConf().getMultiRooted())
+				this.mrSP.treatMessages(treeM);
+			else 	
+				this.tm.treatMessages(treeM);
+			
 		} else {
 			logger.warn("UNKNOWN MESSAGE TYPE: " + sm);
 		}

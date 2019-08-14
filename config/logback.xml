@@ -55,6 +55,9 @@
 		<logger name="bftsmart.tom.core.TOMLayer" level="DEBUG"></logger>
 	
 	<logger name="bftsmart.tree.MultiRootedSP" level="INFO"></logger>
+	
 	-->
+	
+		<logger name="bftsmart.tree.TreeManager" level="TRACE"></logger>
 	
 </configuration>

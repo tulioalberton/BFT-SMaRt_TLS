@@ -167,6 +167,13 @@ public class NettyClientServerCommunicationSystemServerSide extends SimpleChanne
 			} else {
 				logger.info("Persistence NOT enabled.");
 			}
+			//Spanning Tree
+			if (controller.getStaticConf().getMultiRooted()) {
+				logger.info("MultiRooted Spanning Tree ON.");	
+			}else {
+				logger.info("MultiRooted Spanning Tree OFF, Normal Mode.");
+			}
+			
 			/* Tulio Ribeiro END */
 
 			mainChannel = f.channel();

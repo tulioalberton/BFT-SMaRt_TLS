@@ -52,6 +52,7 @@ import bftsmart.tom.util.KeyLoader;
 import bftsmart.tom.util.ShutdownHookThread;
 import bftsmart.tom.util.TOMUtil;
 import bftsmart.tree.MultiRootedSP;
+import bftsmart.tree.TreeManager;
 import bftsmart.tree.messages.TreeMessage;
 import bftsmart.tree.messages.TreeMessage.TreeOperationType;
 
@@ -415,8 +416,11 @@ public class ServiceReplica {
 							 * Tread messages coming from the spanning-tree protocol
 							 */
 							TreeMessage tMsg = (TreeMessage) TOMUtil.getObject(request.getContent());
-							//cs.getMultiRootedSP().initProtocol(replicaId);
-							cs.getMultiRootedSP().treatMessages(tMsg);
+							
+							if(SVController.getStaticConf().getMultiRooted())
+								cs.getMultiRootedSP().treatMessages(tMsg);
+							else
+								cs.getTreeManager().treatMessages(tMsg);
 							
 							if(tMsg.getTreeOperationType().equals(TreeOperationType.STATUS)) {
 								request.reply = new TOMMessage(replicaId, 
@@ -426,7 +430,7 @@ public class ServiceReplica {
 										"OK".toString().getBytes(),
 										SVController.getCurrentViewId(), 
 										request.getReqType());
-								logger.info("Reply created, request:{}, request.reply:{}", 
+								logger.debug("Reply created, request:{}, request.reply:{}", 
 										request, request.reply);
 							}else {
 								ByteArrayOutputStream out = new ByteArrayOutputStream(4);
@@ -444,7 +448,7 @@ public class ServiceReplica {
 										out.toByteArray(),
 										SVController.getCurrentViewId(), 
 										request.getReqType());
-								logger.info("Reply created, request:{}, request.reply:{}, Content:{}", 
+								logger.debug("Reply created, request:{}, request.reply:{}, Content:{}", 
 										request, request.reply, request.reply.getContent());
 							
 							}
@@ -601,11 +605,15 @@ public class ServiceReplica {
 		tomLayer.start(); // start the layer execution
 		tomStackCreated = true;
 
-		/*TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
-		cs.setTreeManager(tm);*/
 		
-		MultiRootedSP mrSP = new MultiRootedSP(cs, SVController, executionManager.getCurrentLeader());
-		cs.setMultiRootedSP(mrSP);
+		if (SVController.getStaticConf().getMultiRooted()) {
+			MultiRootedSP mrSP = new MultiRootedSP(cs, SVController, executionManager.getCurrentLeader());
+			cs.setMultiRootedSP(mrSP);
+		} else {
+			TreeManager tm = new TreeManager(cs, SVController, executionManager.getCurrentLeader());
+			cs.setTreeManager(tm);
+		}
+		
 		
 		
 	}
